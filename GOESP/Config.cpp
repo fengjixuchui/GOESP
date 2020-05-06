@@ -198,6 +198,7 @@ static void from_json(const json& j, Player& p)
     read<value_t::object>(j, "Weapon", p.weapon);
     read<value_t::object>(j, "Flash Duration", p.flashDuration);
     read<value_t::boolean>(j, "Audible Only", p.audibleOnly);
+    read<value_t::object>(j, "Skeleton", p.skeleton);
 }
 
 static void from_json(const json& j, PurchaseList& pl)
@@ -332,6 +333,8 @@ static void to_json(json& j, const Player& p)
         j["Flash Duration"] = p.flashDuration;
     if (p.audibleOnly != dummy.audibleOnly)
         j["Audible Only"] = p.audibleOnly;
+    if (p.skeleton != dummy.skeleton)
+        j["Skeleton"] = p.skeleton;
 }
 
 static void to_json(json& j, const Weapon& w)
@@ -440,7 +443,7 @@ void Config::save() noexcept
         j["Purchase List"] = purchaseList;
 
     if (std::ofstream out{ path / "config.txt" }; out.good())
-        out << std::setw(4) << j;
+        out << std::setw(2) << j;
 }
 
 void Config::scheduleFontLoad(const std::string& name) noexcept
@@ -473,7 +476,7 @@ bool Config::loadScheduledFonts() noexcept
                 auto fontDataSize = GetFontData(hdc, 0, 0, nullptr, 0);
 
                 if (fontDataSize != GDI_ERROR) {
-                    std::unique_ptr<std::byte> fontData{ new std::byte[fontDataSize] };
+                    const auto fontData = std::make_unique<std::byte[]>(fontDataSize);
                     fontDataSize = GetFontData(hdc, 0, 0, fontData.get(), fontDataSize);
 
                     if (fontDataSize != GDI_ERROR) {
