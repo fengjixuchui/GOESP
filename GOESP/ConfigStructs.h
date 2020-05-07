@@ -68,12 +68,21 @@ struct Font {
     }
 };
 
+struct Snapline : ColorToggleThickness {
+    int type = 0;
+
+    auto operator==(const Snapline& s) const
+    {
+        return static_cast<const ColorToggleThickness&>(*this) == static_cast<const ColorToggleThickness&>(s)
+            && type == s.type;
+    }
+};
+
 struct Shared {
     bool enabled = false;
     bool useModelBounds = false;
     Font font;
-    ColorToggleThickness snaplines;
-    int snaplineType = 0;
+    Snapline snapline;
     ColorToggleThicknessRounding box;
     int boxType = 0;
     std::array<float, 3> boxScale{ 0.25f, 0.25f, 0.25f };
@@ -86,8 +95,7 @@ struct Shared {
         return enabled == s.enabled
             && useModelBounds == s.useModelBounds
             && font == s.font
-            && snaplines == s.snaplines
-            && snaplineType == s.snaplineType
+            && snapline == s.snapline
             && box == s.box
             && boxType == s.boxType
             && boxScale == s.boxScale
@@ -135,27 +143,21 @@ struct Weapon : Shared {
     }
 };
 
-struct Trail {
-    bool enabled = false;
-
+struct Trail : ColorToggleThickness {
     enum Type {
         Line = 0,
         Circles,
-        FilledCircles,
+        FilledCircles
     };
 
     int type = Line;
     float time = 2.0f;
-    Color color;
-    float thickness = 1.0f;
 
     auto operator==(const Trail& t) const
     {
-        return enabled == t.enabled
+        return static_cast<const ColorToggleThickness&>(*this) == static_cast<const ColorToggleThickness&>(t)
             && type == t.type
-            && time == t.time
-            && color == t.color
-            && thickness == t.thickness;
+            && time == t.time;
     }
 };
 
