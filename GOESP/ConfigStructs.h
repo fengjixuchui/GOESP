@@ -38,7 +38,7 @@ struct ColorToggleThickness : ColorToggle {
 };
 
 struct ColorToggleRounding : ColorToggle {
-    float rounding = 5.0f;
+    float rounding = 0.0f;
 
     auto operator==(const ColorToggleRounding& ctr) const
     {
@@ -79,7 +79,14 @@ struct Snapline : ColorToggleThickness {
 };
 
 struct Box : ColorToggleThicknessRounding {
-    int type = 0;
+    enum Type {
+        _2d = 0,
+        _2dCorners,
+        _3d,
+        _3dCorners
+    };
+
+    int type = _2d;
     std::array<float, 3> scale{ 0.25f, 0.25f, 0.25f };
 
     auto operator==(const Box& b) const
@@ -114,6 +121,11 @@ struct Shared {
 };
 
 struct Player : Shared {
+    Player() : Shared{}
+    {
+        box.type = Box::_2dCorners;
+    }
+
     ColorToggle weapon;
     ColorToggle flashDuration;
     bool audibleOnly = false;
