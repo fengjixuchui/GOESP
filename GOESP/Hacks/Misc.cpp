@@ -39,10 +39,6 @@ struct LocalPlayerData {
         if (const auto activeWeapon = localPlayer->getActiveWeapon()) {
             inReload = activeWeapon->isInReload();
             shooting = localPlayer->shotsFired() > 1;
-
-            if (const auto weaponInfo = activeWeapon->getWeaponInfo())
-                fullAutoWeapon = weaponInfo->fullAuto;
-
             nextWeaponAttack = activeWeapon->nextPrimaryAttack();
         }
         aimPunch = localPlayer->getAimPunch();
@@ -52,7 +48,6 @@ struct LocalPlayerData {
     bool inBombZone = false;
     bool inReload = false;
     bool shooting = false;
-    bool fullAutoWeapon = false;
     float nextWeaponAttack = 0.0f;
     Vector aimPunch;
 };
@@ -103,7 +98,7 @@ void Misc::drawRecoilCrosshair(ImDrawList* drawList) noexcept
     if (!localPlayerData.exists || !localPlayerData.alive)
         return;
 
-    if (!localPlayerData.fullAutoWeapon || !localPlayerData.shooting)
+    if (!localPlayerData.shooting)
         return;
 
     const auto [width, height] = interfaces->engine->getScreenSize();
@@ -133,8 +128,8 @@ void Misc::purchaseList(GameEvent* event) noexcept
             const auto player = interfaces->entityList->getEntity(interfaces->engine->getPlayerForUserId(event->getInt("userid")));
 
             if (player && localPlayer && memory->isOtherEnemy(player, localPlayer.get())) {
-                if (const auto defintion = memory->itemSystem()->getItemSchema()->getItemDefinitionByName(event->getString("weapon"))) {
-                    if (const auto weaponInfo = memory->weaponSystem->getWeaponInfo(defintion->getWeaponId())) {
+                if (const auto definition = memory->itemSystem()->getItemSchema()->getItemDefinitionByName(event->getString("weapon"))) {
+                    if (const auto weaponInfo = memory->weaponSystem->getWeaponInfo(definition->getWeaponId())) {
                         purchaseDetails[player->getPlayerName(config->normalizePlayerNames)].second += weaponInfo->price;
                         totalCost += weaponInfo->price;
                     }
@@ -176,17 +171,25 @@ void Misc::purchaseList(GameEvent* event) noexcept
 
         if ((!interfaces->engine->isInGame() || freezeEnd != 0.0f && memory->globalVars->realtime > freezeEnd + (!config->purchaseList.onlyDuringFreezeTime ? mp_buytime->getFloat() : 0.0f) || purchaseDetails.empty() || purchaseTotal.empty()) && !gui->open)
             return;
-        
-        ImGui::SetNextWindowSize({ 200.0f, 200.0f }, ImGuiCond_Once);
+
+        if (config->purchaseList.pos != ImVec2{}) {
+            ImGui::SetNextWindowPos(config->purchaseList.pos);
+            config->purchaseList.pos = {};
+        }
+
+        if (config->purchaseList.size != ImVec2{}) {
+            ImGui::SetNextWindowSize(ImClamp(config->purchaseList.size, {}, interfaces->engine->getScreenSize()));
+            config->purchaseList.size = {};
+        }
 
         ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoCollapse;
         if (!gui->open)
             windowFlags |= ImGuiWindowFlags_NoInputs;
         if (config->purchaseList.noTitleBar)
             windowFlags |= ImGuiWindowFlags_NoTitleBar;
-        
+
         ImGui::Begin("Purchases", nullptr, windowFlags);
-        
+
         if (config->purchaseList.mode == PurchaseList::Details) {
             for (const auto& [playerName, purchases] : purchaseDetails) {
                 std::string s = std::accumulate(purchases.first.begin(), purchases.first.end(), std::string{ }, [](std::string s, const std::string& piece) { return s += piece + ", "; });
@@ -213,18 +216,19 @@ void Misc::purchaseList(GameEvent* event) noexcept
 
 void Misc::drawBombZoneHint() noexcept
 {
-    if (!config->bombZoneHint)
+    if (!config->bombZoneHint.enabled)
         return;
 
     std::scoped_lock _{ dataMutex };
 
-    if (!localPlayerData.exists || !localPlayerData.alive)
+    if (!gui->open && (!localPlayerData.exists || !localPlayerData.alive || !localPlayerData.inBombZone))
         return;
 
-    if (!gui->open && !localPlayerData.inBombZone)
-        return;
-
-    ImGui::SetNextWindowSize({});
+    ImGui::SetNextWindowSize({}, ImGuiCond_Once);
+    if (config->bombZoneHint.pos != ImVec2{}) {
+        ImGui::SetNextWindowPos(config->bombZoneHint.pos);
+        config->bombZoneHint.pos = {};
+    }
     ImGui::Begin("Bomb Zone Hint", nullptr, ImGuiWindowFlags_NoDecoration | (gui->open ? ImGuiWindowFlags_None : ImGuiWindowFlags_NoInputs));
     ImGui::TextUnformatted("You're in bomb zone!");
     ImGui::End();

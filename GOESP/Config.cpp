@@ -1,6 +1,7 @@
 #include "Config.h"
 
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
 #include "nlohmann/json.hpp"
 
 #include <fstream>
@@ -16,29 +17,25 @@ int CALLBACK fontCallback(const LOGFONTA* lpelfe, const TEXTMETRICA*, DWORD, LPA
     if (fontName[0] == '@')
         return TRUE;
 
-    HFONT fontHandle = CreateFontA(0, 0, 0, 0,
+    if (HFONT font = CreateFontA(0, 0, 0, 0,
         FW_NORMAL, FALSE, FALSE, FALSE,
         ANSI_CHARSET, OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-        DEFAULT_PITCH, fontName.c_str());
-
-    if (fontHandle) {
-        HDC hdc = CreateCompatibleDC(nullptr);
+        DEFAULT_PITCH, fontName.c_str())) {
 
         DWORD fontData = GDI_ERROR;
 
-        if (hdc) {
-            SelectObject(hdc, fontHandle);
+        if (HDC hdc = CreateCompatibleDC(nullptr)) {
+            SelectObject(hdc, font);
             // Do not use TTC fonts as we only support TTF fonts
             fontData = GetFontData(hdc, 'fctt', 0, NULL, 0);
             DeleteDC(hdc);
         }
-        DeleteObject(fontHandle);
-        
-        if (fontData != GDI_ERROR)
-            return TRUE;
+        DeleteObject(font);
+
+        if (fontData == GDI_ERROR)
+            reinterpret_cast<std::vector<std::string>*>(lParam)->push_back(fontName);
     }
-    reinterpret_cast<std::vector<std::string>*>(lParam)->push_back(fontName);
     return TRUE;
 }
 
@@ -49,7 +46,7 @@ Config::Config(const char* folderName) noexcept
         path /= folderName;
         CoTaskMemFree(pathToDocuments);
     }
-    
+
     if (!std::filesystem::is_directory(path)) {
         std::filesystem::remove(path);
         std::filesystem::create_directory(path);
@@ -209,7 +206,14 @@ static void from_json(const json& j, Player& p)
     read<value_t::object>(j, "Weapon", p.weapon);
     read<value_t::object>(j, "Flash Duration", p.flashDuration);
     read<value_t::boolean>(j, "Audible Only", p.audibleOnly);
+    read<value_t::boolean>(j, "Spotted Only", p.spottedOnly);
     read<value_t::object>(j, "Skeleton", p.skeleton);
+}
+
+static void from_json(const json& j, ImVec2& v)
+{
+    read_number(j, "X", v.x);
+    read_number(j, "Y", v.y);
 }
 
 static void from_json(const json& j, PurchaseList& pl)
@@ -219,6 +223,14 @@ static void from_json(const json& j, PurchaseList& pl)
     read<value_t::boolean>(j, "Show Prices", pl.showPrices);
     read<value_t::boolean>(j, "No Title Bar", pl.noTitleBar);
     read_number(j, "Mode", pl.mode);
+    read<value_t::object>(j, "Pos", pl.pos);
+    read<value_t::object>(j, "Size", pl.size);
+}
+
+static void from_json(const json& j, BombZoneHint& b)
+{
+    read<value_t::boolean>(j, "Enabled", b.enabled);
+    read<value_t::object>(j, "Pos", b.pos);
 }
 
 void Config::load() noexcept
@@ -240,190 +252,186 @@ void Config::load() noexcept
     read<value_t::object>(j, "Reload Progress", reloadProgress);
     read<value_t::object>(j, "Recoil Crosshair", recoilCrosshair);
     read<value_t::boolean>(j, "Normalize Player Names", normalizePlayerNames);
-    read<value_t::boolean>(j, "Bomb Zone Hint", bombZoneHint);
+    read<value_t::object>(j, "Bomb Zone Hint", bombZoneHint);
     read<value_t::object>(j, "Purchase List", purchaseList);
 }
+ 
+// WRITE macro requires:
+// - json object named 'j'
+// - object holding default values named 'dummy'
+// - object to write to json named 'o'
+#define WRITE(name, valueName) \
+if (o.##valueName != dummy.##valueName) \
+    j[name] = o.##valueName;
 
-static void to_json(json& j, const Color& c)
+static void to_json(json& j, const Color& o)
 {
     const Color dummy;
 
-    if (c.color != dummy.color)
-        j["Color"] = c.color;
-    if (c.rainbow != dummy.rainbow)
-        j["Rainbow"] = c.rainbow;
-    if (c.rainbowSpeed != dummy.rainbowSpeed)
-        j["Rainbow Speed"] = c.rainbowSpeed;
+    WRITE("Color", color)
+    WRITE("Rainbow", rainbow)
+    WRITE("Rainbow Speed", rainbowSpeed)
 }
 
-static void to_json(json& j, const ColorToggle& ct)
+static void to_json(json& j, const ColorToggle& o)
 {
-    j = static_cast<Color>(ct);
+    j = static_cast<Color>(o);
 
     const ColorToggle dummy;
 
-    if (ct.enabled != dummy.enabled)
-        j["Enabled"] = ct.enabled;
+    WRITE("Enabled", enabled)
 }
 
-static void to_json(json& j, const ColorToggleRounding& ctr)
+static void to_json(json& j, const ColorToggleRounding& o)
 {
-    j = static_cast<ColorToggle>(ctr);
+    j = static_cast<ColorToggle>(o);
 
     const ColorToggleRounding dummy;
 
-    if (ctr.rounding != dummy.rounding)
-        j["Rounding"] = ctr.rounding;
+    WRITE("Rounding", rounding)
 }
 
-static void to_json(json& j, const ColorToggleThickness& ctt)
+static void to_json(json& j, const ColorToggleThickness& o)
 {
-    j = static_cast<ColorToggle>(ctt);
+    j = static_cast<ColorToggle>(o);
 
     const ColorToggleThickness dummy;
 
-    if (ctt.thickness != dummy.thickness)
-        j["Thickness"] = ctt.thickness;
+    WRITE("Thickness", thickness)
 }
 
-static void to_json(json& j, const ColorToggleThicknessRounding& cttr)
+static void to_json(json& j, const ColorToggleThicknessRounding& o)
 {
-    j = static_cast<ColorToggleRounding>(cttr);
+    j = static_cast<ColorToggleRounding>(o);
 
     const ColorToggleThicknessRounding dummy;
 
-    if (cttr.thickness != dummy.thickness)
-        j["Thickness"] = cttr.thickness;
+    WRITE("Thickness", thickness)
 }
 
-static void to_json(json& j, const Font& f)
+static void to_json(json& j, const Font& o)
 {
     const Font dummy;
 
-    if (f.name != dummy.name)
-        j["Name"] = f.name;
+    WRITE("Name", name)
 }
 
-static void to_json(json& j, const Snapline& s)
+static void to_json(json& j, const Snapline& o)
 {
-    j = static_cast<ColorToggleThickness>(s);
+    j = static_cast<ColorToggleThickness>(o);
 
     const Snapline dummy;
 
-    if (s.type != dummy.type)
-        j["Type"] = s.type;
+    WRITE("Type", type)
 }
 
-static void to_json(json& j, const Box& b)
+static void to_json(json& j, const Box& o)
 {
-    j = static_cast<ColorToggleThicknessRounding>(b);
+    j = static_cast<ColorToggleThicknessRounding>(o);
 
     const Box dummy;
 
-    if (b.type != dummy.type)
-        j["Type"] = b.type;
-    if (b.scale != dummy.scale)
-        j["Scale"] = b.scale;
+    WRITE("Type", type)
+    WRITE("Scale", scale)
 }
 
-static void to_json(json& j, const Shared& s)
+static void to_json(json& j, const Shared& o)
 {
     const Shared dummy;
 
-    if (s.enabled != dummy.enabled)
-        j["Enabled"] = s.enabled;
-    if (s.useModelBounds != dummy.useModelBounds)
-        j["Use Model Bounds"] = s.useModelBounds;
-    if (s.font != dummy.font)
-        j["Font"] = s.font;
-    if (s.snapline != dummy.snapline)
-        j["Snapline"] = s.snapline;
-    if (s.box != dummy.box)
-        j["Box"] = s.box;
-    if (s.name != dummy.name)
-        j["Name"] = s.name;
-    if (s.textBackground != dummy.textBackground)
-        j["Text Background"] = s.textBackground;
-    if (s.textCullDistance != dummy.textCullDistance)
-        j["Text Cull Distance"] = s.textCullDistance;
+    WRITE("Enabled", enabled)
+    WRITE("Use Model Bounds", useModelBounds)
+    WRITE("Font", font)
+    WRITE("Snapline", snapline)
+    WRITE("Box", box)
+    WRITE("Name", name)
+    WRITE("Text Background", textBackground)
+    WRITE("Text Cull Distance", textCullDistance)
 }
 
-static void to_json(json& j, const Player& p)
+static void to_json(json& j, const Player& o)
 {
-    j = static_cast<Shared>(p);
+    j = static_cast<Shared>(o);
 
     const Player dummy;
-    
-    if (p.weapon != dummy.weapon)
-        j["Weapon"] = p.weapon;
-    if (p.flashDuration != dummy.flashDuration)
-        j["Flash Duration"] = p.flashDuration;
-    if (p.audibleOnly != dummy.audibleOnly)
-        j["Audible Only"] = p.audibleOnly;
-    if (p.skeleton != dummy.skeleton)
-        j["Skeleton"] = p.skeleton;
+
+    WRITE("Weapon", weapon)
+    WRITE("Flash Duration", flashDuration)
+    WRITE("Audible Only", audibleOnly)
+    WRITE("Spotted Only", spottedOnly)
+    WRITE("Skeleton", skeleton)
 }
 
-static void to_json(json& j, const Weapon& w)
+static void to_json(json& j, const Weapon& o)
 {
-    j = static_cast<Shared>(w);
+    j = static_cast<Shared>(o);
 
     const Weapon dummy;
 
-    if (w.ammo != dummy.ammo)
-        j["Ammo"] = w.ammo;
+    WRITE("Ammo", ammo)
 }
 
-static void to_json(json& j, const Trail& t)
+static void to_json(json& j, const Trail& o)
 {
-    j = static_cast<ColorToggleThickness>(t);
+    j = static_cast<ColorToggleThickness>(o);
 
     const Trail dummy;
 
-    if (t.type != dummy.type)
-        j["Type"] = t.type;
-    if (t.time != dummy.time)
-        j["Time"] = t.time;
+    WRITE("Type", type)
+    WRITE("Time", time)
 }
 
-static void to_json(json& j, const Trails& t)
+static void to_json(json& j, const Trails& o)
 {
     const Trails dummy;
 
-    if (t.enabled != dummy.enabled)
-        j["Enabled"] = t.enabled;
-    if (t.localPlayer != dummy.localPlayer)
-        j["Local Player"] = t.localPlayer;
-    if (t.allies != dummy.allies)
-        j["Allies"] = t.allies;
-    if (t.enemies != dummy.enemies)
-        j["Enemies"] = t.enemies;
+    WRITE("Enabled", enabled)
+    WRITE("Local Player", localPlayer)
+    WRITE("Allies", allies)
+    WRITE("Enemies", enemies)
 }
 
-static void to_json(json& j, const Projectile& p)
+static void to_json(json& j, const Projectile& o)
 {
-    j = static_cast<Shared>(p);
+    j = static_cast<Shared>(o);
 
     const Projectile dummy;
 
-    if (p.trails != dummy.trails)
-        j["Trails"] = p.trails;
+    WRITE("Trails", trails)
 }
 
-static void to_json(json& j, const PurchaseList& pl)
+static void to_json(json& j, const ImVec2& o)
+{
+    const ImVec2 dummy;
+
+    WRITE("X", x)
+    WRITE("Y", y)
+}
+
+static void to_json(json& j, const PurchaseList& o)
 {
     const PurchaseList dummy;
 
-    if (pl.enabled != dummy.enabled)
-        j["Enabled"] = pl.enabled;
-    if (pl.onlyDuringFreezeTime != dummy.onlyDuringFreezeTime)
-        j["Only During Freeze Time"] = pl.onlyDuringFreezeTime;
-    if (pl.showPrices != dummy.showPrices)
-        j["Show Prices"] = pl.showPrices;
-    if (pl.noTitleBar != dummy.noTitleBar)
-        j["No Title Bar"] = pl.noTitleBar;
-    if (pl.mode != dummy.mode)
-        j["Mode"] = pl.mode;
+    WRITE("Enabled", enabled)
+    WRITE("Only During Freeze Time", onlyDuringFreezeTime)
+    WRITE("Show Prices", showPrices)
+    WRITE("No Title Bar", noTitleBar)
+    WRITE("Mode", mode)
+
+    if (const auto window = ImGui::FindWindowByName("Purchases")) {
+        j["Pos"] = window->Pos;
+        j["Size"] = window->SizeFull;
+    }
+}
+
+static void to_json(json& j, const BombZoneHint& o)
+{
+    const BombZoneHint dummy;
+
+    WRITE("Enabled", enabled)
+
+    if (const auto window = ImGui::FindWindowByName("Bomb Zone Hint"))
+        j["Pos"] = window->Pos;
 }
 
 void Config::save() noexcept
@@ -460,7 +468,7 @@ void Config::save() noexcept
         j["Recoil Crosshair"] = recoilCrosshair;
     if (normalizePlayerNames != true)
         j["Normalize Player Names"] = normalizePlayerNames;
-    if (bombZoneHint != false)
+    if (bombZoneHint != BombZoneHint{})
         j["Bomb Zone Hint"] = bombZoneHint;
     if (purchaseList != PurchaseList{})
         j["Purchase List"] = purchaseList;
@@ -480,9 +488,6 @@ bool Config::loadScheduledFonts() noexcept
 
     for (const auto& font : scheduledFonts) {
         if (font == "Default")
-            continue;
-
-        if (fonts.find(font) != fonts.cend())
             continue;
 
         HFONT fontHandle = CreateFontA(0, 0, 0, 0,
@@ -507,10 +512,12 @@ bool Config::loadScheduledFonts() noexcept
                         ImFontConfig cfg;
                         cfg.FontDataOwnedByAtlas = false;
 
-                        for (int i = 8; i <= 14; i += 2)
-                            fonts[font + ' ' + std::to_string(i)] = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(fontData.get(), fontDataSize, static_cast<float>(i), &cfg, ranges);
-
-                        result = true;
+                        for (int i = 8; i <= 14; i += 2) {
+                            if (fonts.find(font + ' ' + std::to_string(i)) == fonts.cend()) {
+                                fonts[font + ' ' + std::to_string(i)] = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(fontData.get(), fontDataSize, static_cast<float>(i), &cfg, ranges);
+                                result = true;
+                            }
+                        }
                     }
                 }
                 DeleteDC(hdc);
