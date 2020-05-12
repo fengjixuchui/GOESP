@@ -79,9 +79,9 @@ void Misc::drawReloadProgress(ImDrawList* drawList) noexcept
             reloadLength = localPlayerData.nextWeaponAttack - memory->globalVars->currenttime;
 
         const auto [width, height] = interfaces->engine->getScreenSize();
-        constexpr int segments = 20;
+        constexpr int segments = 40;
         drawList->PathArcTo({ width / 2.0f, height / 2.0f }, 20.0f, -IM_PI / 2, std::clamp(IM_PI * 2 * (0.75f - (localPlayerData.nextWeaponAttack - memory->globalVars->currenttime) / reloadLength), -IM_PI / 2, -IM_PI / 2 + IM_PI * 2), segments);
-        const ImU32 color = Helpers::calculateColor(config->reloadProgress, memory->globalVars->realtime);
+        const ImU32 color = Helpers::calculateColor(config->reloadProgress);
         drawList->PathStroke(color, false, config->reloadProgress.thickness);
     } else {
         reloadLength = 0.0f;
@@ -105,7 +105,7 @@ void Misc::drawRecoilCrosshair(ImDrawList* drawList) noexcept
 
     const float x = width * (0.5f - localPlayerData.aimPunch.y / 180.0f);
     const float y = height * (0.5f + localPlayerData.aimPunch.x / 180.0f);
-    const auto color = Helpers::calculateColor(config->recoilCrosshair, memory->globalVars->realtime);
+    const auto color = Helpers::calculateColor(config->recoilCrosshair);
 
     drawList->AddLine({ x, y - 10 }, { x, y + 10 }, color, config->recoilCrosshair.thickness);
     drawList->AddLine({ x - 10, y }, { x + 10, y }, color, config->recoilCrosshair.thickness);
@@ -171,14 +171,14 @@ void Misc::purchaseList(GameEvent* event) noexcept
 
         if ((!interfaces->engine->isInGame() || freezeEnd != 0.0f && memory->globalVars->realtime > freezeEnd + (!config->purchaseList.onlyDuringFreezeTime ? mp_buytime->getFloat() : 0.0f) || purchaseDetails.empty() || purchaseTotal.empty()) && !gui->open)
             return;
-
+        
         if (config->purchaseList.pos != ImVec2{}) {
             ImGui::SetNextWindowPos(config->purchaseList.pos);
             config->purchaseList.pos = {};
         }
 
         if (config->purchaseList.size != ImVec2{}) {
-            ImGui::SetNextWindowSize(ImClamp(config->purchaseList.size, {}, interfaces->engine->getScreenSize()));
+            ImGui::SetNextWindowSize(ImClamp(config->purchaseList.size, {}, ImGui::GetIO().DisplaySize));
             config->purchaseList.size = {};
         }
 
@@ -224,7 +224,6 @@ void Misc::drawBombZoneHint() noexcept
     if (!gui->open && (!localPlayerData.exists || !localPlayerData.alive || !localPlayerData.inBombZone))
         return;
 
-    ImGui::SetNextWindowSize({}, ImGuiCond_Once);
     if (config->bombZoneHint.pos != ImVec2{}) {
         ImGui::SetNextWindowPos(config->bombZoneHint.pos);
         config->bombZoneHint.pos = {};
