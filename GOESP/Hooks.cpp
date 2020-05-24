@@ -66,10 +66,7 @@ static HRESULT D3DAPI reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* par
     HookGuard guard;
 
     ImGui_ImplDX9_InvalidateDeviceObjects();
-    auto result = hooks->reset(device, params);
-    ImGui_ImplDX9_CreateDeviceObjects();
-
-    return result;
+    return hooks->reset(device, params);
 }
 
 static HRESULT D3DAPI present(IDirect3DDevice9* device, const RECT* src, const RECT* dest, HWND windowOverride, const RGNDATA* dirtyRegion) noexcept
@@ -78,13 +75,8 @@ static HRESULT D3DAPI present(IDirect3DDevice9* device, const RECT* src, const R
 
     static const auto _ = ImGui_ImplDX9_Init(device);
 
-    IDirect3DVertexDeclaration9* vertexDeclaration;
-    device->GetVertexDeclaration(&vertexDeclaration);
-
-    if (config->loadScheduledFonts()) {
+    if (config->loadScheduledFonts())
         ImGui_ImplDX9_InvalidateDeviceObjects();
-        ImGui_ImplDX9_CreateDeviceObjects();
-    }
 
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -106,12 +98,18 @@ static HRESULT D3DAPI present(IDirect3DDevice9* device, const RECT* src, const R
     ImGui::GetIO().MouseDrawCursor = gui->open;
 
     ImGui::EndFrame();
-
     ImGui::Render();
-    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
 
-    device->SetVertexDeclaration(vertexDeclaration);
-    vertexDeclaration->Release();
+    if (device->BeginScene() == D3D_OK) {
+        IDirect3DVertexDeclaration9* vertexDeclaration;
+        device->GetVertexDeclaration(&vertexDeclaration);
+
+        ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+
+        device->SetVertexDeclaration(vertexDeclaration);
+        vertexDeclaration->Release();
+        device->EndScene();
+    }
 
     return hooks->present(device, src, dest, windowOverride, dirtyRegion);
 }
@@ -164,15 +162,9 @@ static DWORD WINAPI waitOnUnload(HMODULE hModule) noexcept
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
 
-    hooks.reset();
     eventListener.reset();
-    memory.reset();
-    interfaces.reset();
-    gui.reset();
-    config.reset();
 
     _CRT_INIT(hModule, DLL_PROCESS_DETACH, nullptr);
-
     FreeLibraryAndExitThread(hModule, 0);
 }
 
