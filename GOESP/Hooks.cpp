@@ -6,6 +6,7 @@
 
 #include "Config.h"
 #include "EventListener.h"
+#include "GameData.h"
 #include "GUI.h"
 #include "Hacks/ESP.h"
 #include "Hacks/Misc.h"
@@ -49,9 +50,7 @@ static LRESULT WINAPI wndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lPara
 
     if (lastDataGather != memory->globalVars->realtime) {
         lastDataGather = memory->globalVars->realtime;
-
-        ESP::collectData();
-        Misc::collectData();
+        GameData::update();
     }
 
     LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -101,13 +100,7 @@ static HRESULT D3DAPI present(IDirect3DDevice9* device, const RECT* src, const R
     ImGui::Render();
 
     if (device->BeginScene() == D3D_OK) {
-        IDirect3DVertexDeclaration9* vertexDeclaration;
-        device->GetVertexDeclaration(&vertexDeclaration);
-
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-
-        device->SetVertexDeclaration(vertexDeclaration);
-        vertexDeclaration->Release();
         device->EndScene();
     }
 
