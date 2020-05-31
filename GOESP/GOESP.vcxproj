@@ -136,6 +136,7 @@
     <ClCompile Include="imgui\imgui_impl_win32.cpp" />
     <ClCompile Include="imgui\imgui_widgets.cpp" />
     <ClCompile Include="Memory.cpp" />
+    <ClCompile Include="SDK\Entity.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Config.h" />
@@ -162,6 +163,7 @@
     <ClInclude Include="nlohmann\json.hpp" />
     <ClInclude Include="SDK\ClassId.h" />
     <ClInclude Include="SDK\ClientClass.h" />
+    <ClInclude Include="SDK\ClientTools.h" />
     <ClInclude Include="SDK\ConVar.h" />
     <ClInclude Include="SDK\Cvar.h" />
     <ClInclude Include="SDK\Engine.h" />
