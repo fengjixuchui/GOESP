@@ -177,6 +177,7 @@ void LocalPlayerData::update() noexcept
     if (const auto activeWeapon = localPlayer->getActiveWeapon()) {
         inReload = activeWeapon->isInReload();
         shooting = localPlayer->shotsFired() > 1;
+        noScope = activeWeapon->isSniperRifle() && !localPlayer->isScoped();
         nextWeaponAttack = activeWeapon->nextPrimaryAttack();
     }
     fov = localPlayer->fovStart();
@@ -211,7 +212,7 @@ EntityData::EntityData(Entity* entity) noexcept : BaseData{ entity }
         case ClassId::AmmoBox: return "Ammo Box";
         case ClassId::RadarJammer: return "Radar Jammer";
         case ClassId::SnowballPile: return "Snowball Pile";
-        default: return nullptr;
+        default: assert(false); return "unknown";
         }
     }(entity->getClientClass()->classId);
 }

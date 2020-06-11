@@ -115,6 +115,12 @@ public:
 
 static ImDrawList* drawList;
 
+static void addLineWithShadow(const ImVec2& p1, const ImVec2& p2, ImU32 col, float thickness) noexcept
+{
+    drawList->AddLine(p1 + ImVec2{ 1.0f, 1.0f }, p2 + ImVec2{ 1.0f, 1.0f }, col & 0xFF000000, thickness);
+    drawList->AddLine(p1, p2, col, thickness);
+}
+
 static void renderBox(const BoundingBox& bbox, const Box& config) noexcept
 {
     if (!config.enabled)
@@ -124,23 +130,30 @@ static void renderBox(const BoundingBox& bbox, const Box& config) noexcept
 
     switch (config.type) {
     case Box::_2d:
+        drawList->AddRect(bbox.min + ImVec2{ 1.0f, 1.0f }, bbox.max + ImVec2{ 1.0f, 1.0f }, color & 0xFF000000, config.rounding, ImDrawCornerFlags_All, config.thickness);
         drawList->AddRect(bbox.min, bbox.max, color, config.rounding, ImDrawCornerFlags_All, config.thickness);
         break;
-
     case Box::_2dCorners:
-        drawList->AddLine(bbox.min, { bbox.min.x, bbox.min.y * 0.75f + bbox.max.y * 0.25f }, color, config.thickness);
-        drawList->AddLine(bbox.min, { bbox.min.x * 0.75f + bbox.max.x * 0.25f, bbox.min.y }, color, config.thickness);
+        addLineWithShadow(bbox.min, { bbox.min.x, bbox.min.y * 0.75f + bbox.max.y * 0.25f }, color, config.thickness);
+        addLineWithShadow(bbox.min, { bbox.min.x * 0.75f + bbox.max.x * 0.25f, bbox.min.y }, color, config.thickness);
 
-        drawList->AddLine({ bbox.max.x, bbox.min.y }, { bbox.max.x * 0.75f + bbox.min.x * 0.25f, bbox.min.y }, color, config.thickness);
-        drawList->AddLine({ bbox.max.x, bbox.min.y }, { bbox.max.x, bbox.min.y * 0.75f + bbox.max.y * 0.25f }, color, config.thickness);
+        addLineWithShadow({ bbox.max.x, bbox.min.y }, { bbox.max.x * 0.75f + bbox.min.x * 0.25f, bbox.min.y }, color, config.thickness);
+        addLineWithShadow({ bbox.max.x, bbox.min.y }, { bbox.max.x, bbox.min.y * 0.75f + bbox.max.y * 0.25f }, color, config.thickness);
 
-        drawList->AddLine({ bbox.min.x, bbox.max.y }, { bbox.min.x, bbox.max.y * 0.75f + bbox.min.y * 0.25f }, color, config.thickness);
-        drawList->AddLine({ bbox.min.x, bbox.max.y }, { bbox.min.x * 0.75f + bbox.max.x * 0.25f, bbox.max.y }, color, config.thickness);
+        addLineWithShadow({ bbox.min.x, bbox.max.y }, { bbox.min.x, bbox.max.y * 0.75f + bbox.min.y * 0.25f }, color, config.thickness);
+        addLineWithShadow({ bbox.min.x, bbox.max.y }, { bbox.min.x * 0.75f + bbox.max.x * 0.25f, bbox.max.y }, color, config.thickness);
 
-        drawList->AddLine(bbox.max, { bbox.max.x * 0.75f + bbox.min.x * 0.25f, bbox.max.y }, color, config.thickness);
-        drawList->AddLine(bbox.max, { bbox.max.x, bbox.max.y * 0.75f + bbox.min.y * 0.25f }, color, config.thickness);
+        addLineWithShadow(bbox.max, { bbox.max.x * 0.75f + bbox.min.x * 0.25f, bbox.max.y }, color, config.thickness);
+        addLineWithShadow(bbox.max, { bbox.max.x, bbox.max.y * 0.75f + bbox.min.y * 0.25f }, color, config.thickness);
         break;
     case Box::_3d:
+        // two separate loops to make shadows not overlap normal lines
+        for (int i = 0; i < 8; ++i) {
+            for (int j = 1; j <= 4; j <<= 1) {
+                if (!(i & j))
+                    drawList->AddLine(bbox.vertices[i] + ImVec2{ 1.0f, 1.0f }, bbox.vertices[i + j] + ImVec2{ 1.0f, 1.0f }, color & 0xFF000000, config.thickness);
+            }
+        }
         for (int i = 0; i < 8; ++i) {
             for (int j = 1; j <= 4; j <<= 1) {
                 if (!(i & j))
@@ -149,6 +162,16 @@ static void renderBox(const BoundingBox& bbox, const Box& config) noexcept
         }
         break;
     case Box::_3dCorners:
+        // two separate loops to make shadows not overlap normal lines
+        for (int i = 0; i < 8; ++i) {
+            for (int j = 1; j <= 4; j <<= 1) {
+                if (!(i & j)) {
+                    drawList->AddLine(bbox.vertices[i] + ImVec2{ 1.0f, 1.0f }, ImVec2{ bbox.vertices[i].x * 0.75f + bbox.vertices[i + j].x * 0.25f, bbox.vertices[i].y * 0.75f + bbox.vertices[i + j].y * 0.25f } + ImVec2{ 1.0f, 1.0f }, color & 0xFF000000, config.thickness);
+                    drawList->AddLine(ImVec2{ bbox.vertices[i].x * 0.25f + bbox.vertices[i + j].x * 0.75f, bbox.vertices[i].y * 0.25f + bbox.vertices[i + j].y * 0.75f } + ImVec2{ 1.0f, 1.0f }, bbox.vertices[i + j] + ImVec2{ 1.0f, 1.0f }, color & 0xFF000000, config.thickness);
+                }
+            }
+        }
+
         for (int i = 0; i < 8; ++i) {
             for (int j = 1; j <= 4; j <<= 1) {
                 if (!(i & j)) {
@@ -331,6 +354,8 @@ static void drawPlayerSkeleton(const ColorToggleThickness& config, const std::ve
     if (!config.enabled)
         return;
 
+    const auto color = Helpers::calculateColor(config);
+
     for (const auto& [bone, parent] : bones) {
         ImVec2 bonePoint;
         if (!worldToScreen(bone, bonePoint))
@@ -340,7 +365,6 @@ static void drawPlayerSkeleton(const ColorToggleThickness& config, const std::ve
         if (!worldToScreen(parent, parentPoint))
             continue;
 
-        const auto color = Helpers::calculateColor(config);
         drawList->AddLine(bonePoint, parentPoint, color, config.thickness);
     }
 }
@@ -368,12 +392,12 @@ static void renderWeaponEsp(const WeaponData& weaponData, const Weapon& parentCo
     }
 }
 
-static void renderEntityEsp(const BaseData& entityData, const Shared& parentConfig, const Shared& itemConfig, const char* name) noexcept
+static void renderEntityEsp(const BaseData& entityData, const std::unordered_map<std::string, Shared>& map, const char* name) noexcept
 {
-    const auto& config = itemConfig.enabled ? itemConfig : parentConfig;
-
-    if (config.enabled) {
-        renderEntityBox(entityData, name, config);
+    if (const auto cfg = map.find(name); cfg != map.cend() && cfg->second.enabled) {
+        renderEntityBox(entityData, name, cfg->second);
+    } else if (const auto cfg = map.find("All"); cfg != map.cend() && cfg->second.enabled) {
+        renderEntityBox(entityData, name, cfg->second);
     }
 }
 
@@ -412,14 +436,12 @@ void ESP::render() noexcept
     for (const auto& weapon : GameData::weapons())
         renderWeaponEsp(weapon, config->weapons[weapon.group], config->weapons[weapon.name]);
 
-    for (const auto& entity : GameData::entities()) {
-        if (entity.name)
-            renderEntityEsp(entity, config->otherEntities["All"], config->otherEntities[entity.name], entity.name);
-    }
+    for (const auto& entity : GameData::entities())
+        renderEntityEsp(entity, config->otherEntities, entity.name);
 
     for (const auto& lootCrate : GameData::lootCrates()) {
         if (lootCrate.name)
-            renderEntityEsp(lootCrate, config->lootCrates["All"], config->lootCrates[lootCrate.name], lootCrate.name);
+            renderEntityEsp(lootCrate, config->lootCrates, lootCrate.name);
     }
 
     for (const auto& projectile : GameData::projectiles()) {
