@@ -16,6 +16,7 @@ GUI::GUI() noexcept
     ImGuiStyle& style = ImGui::GetStyle();
     style.ScrollbarSize = 13.0f;
     style.WindowTitleAlign = { 0.5f, 0.5f };
+    style.Colors[ImGuiCol_WindowBg].w = 0.8f;
 
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
@@ -102,8 +103,8 @@ void GUI::drawESPTab() noexcept
 
     constexpr auto getConfigShared = [](std::size_t category, const char* item) noexcept -> Shared& {
         switch (category) {
-        case 0: default: return config->allies[item];
-        case 1: return config->enemies[item];
+        case 0: default: return config->enemies[item];
+        case 1: return config->allies[item];
         case 2: return config->weapons[item];
         case 3: return config->projectiles[item];
         case 4: return config->lootCrates[item];
@@ -113,13 +114,13 @@ void GUI::drawESPTab() noexcept
 
     constexpr auto getConfigPlayer = [](std::size_t category, const char* item) noexcept -> Player& {
         switch (category) {
-        case 0: default: return config->allies[item];
-        case 1: return config->enemies[item];
+        case 0: default: return config->enemies[item];
+        case 1: return config->allies[item];
         }
     };
 
     if (ImGui::ListBoxHeader("##list", { 170.0f, 300.0f })) {
-        constexpr std::array categories{ "Allies", "Enemies", "Weapons", "Projectiles", "Loot Crates", "Other Entities" };
+        constexpr std::array categories{ "Enemies", "Allies", "Weapons", "Projectiles", "Loot Crates", "Other Entities" };
 
         for (std::size_t i = 0; i < categories.size(); ++i) {
             if (ImGui::Selectable(categories[i], currentCategory == i && std::string_view{ currentItem } == "All")) {
@@ -291,7 +292,8 @@ void GUI::drawESPTab() noexcept
                 const auto itemEnabled = getConfigShared(i, items[j]).enabled;
 
                 for (const auto subItem : subItems) {
-                    if ((categoryEnabled || itemEnabled) && !config->weapons[subItem].enabled)
+                    auto& subItemConfig = config->weapons[subItem];
+                    if ((categoryEnabled || itemEnabled) && !subItemConfig.enabled)
                         continue;
 
                     if (ImGui::Selectable(subItem, currentCategory == i && selectedSubItem && std::string_view{ currentItem } == subItem)) {
@@ -301,29 +303,29 @@ void GUI::drawESPTab() noexcept
                     }
 
                     if (ImGui::BeginDragDropSource()) {
-                        ImGui::SetDragDropPayload("Weapon", &config->weapons[subItem], sizeof(Weapon), ImGuiCond_Once);
+                        ImGui::SetDragDropPayload("Weapon", &subItemConfig, sizeof(Weapon), ImGuiCond_Once);
                         ImGui::EndDragDropSource();
                     }
 
                     if (ImGui::BeginDragDropTarget()) {
                         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Player")) {
                             const auto& data = *(Player*)payload->Data;
-                            config->weapons[subItem] = data;
+                            subItemConfig = data;
                         }
 
                         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Weapon")) {
                             const auto& data = *(Weapon*)payload->Data;
-                            config->weapons[subItem] = data;
+                            subItemConfig = data;
                         }
 
                         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Projectile")) {
                             const auto& data = *(Projectile*)payload->Data;
-                            config->weapons[subItem] = data;
+                            subItemConfig = data;
                         }
 
                         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
                             const auto& data = *(Shared*)payload->Data;
-                            config->weapons[subItem] = data;
+                            subItemConfig = data;
                         }
                         ImGui::EndDragDropTarget();
                     }
@@ -379,7 +381,6 @@ void GUI::drawESPTab() noexcept
             ImGui::SetNextItemWidth(95.0f);
             ImGui::Combo("Type", &sharedConfig.box.type, "2D\0" "2D corners\0" "3D\0" "3D corners\0");
             ImGui::SetNextItemWidth(275.0f);
-
             ImGui::SliderFloat3("Scale", sharedConfig.box.scale.data(), 0.0f, 0.50f, "%.2f");
             ImGui::EndPopup();
         }
@@ -389,8 +390,6 @@ void GUI::drawESPTab() noexcept
         ImGuiCustom::colorPicker("Name", sharedConfig.name);
         ImGui::SameLine(spacing);
         ImGuiCustom::colorPicker("Text Background", sharedConfig.textBackground);
-        ImGui::Checkbox("Use Model Bounds", &sharedConfig.useModelBounds);
-        ImGui::SameLine();
         ImGui::SetNextItemWidth(95.0f);
         ImGui::InputFloat("Text Cull Distance", &sharedConfig.textCullDistance, 0.4f, 0.8f, "%.1fm");
         sharedConfig.textCullDistance = std::clamp(sharedConfig.textCullDistance, 0.0f, 999.9f);
@@ -411,13 +410,16 @@ void GUI::drawESPTab() noexcept
            // if (currentItem != 7)
                 ImGuiCustom::colorPicker("Ammo", weaponConfig.ammo);
         } else if (currentCategory == 3) {
-            ImGui::Checkbox("Trails", &config->projectiles[currentItem].trails.enabled);
-            ImGui::SameLine();
-           
-            if (ImGui::Button("..."))
-                ImGui::OpenPopup("##trails");
+            auto& trails = config->projectiles[currentItem].trails;
 
-            if (ImGui::BeginPopup("##trails")) {
+            ImGui::Checkbox("Trails", &trails.enabled);
+            ImGui::SameLine();
+            ImGui::PushID("Trails");
+
+            if (ImGui::Button("..."))
+                ImGui::OpenPopup("");
+
+            if (ImGui::BeginPopup("")) {
                 constexpr auto trailPicker = [](const char* name, Trail& trail) noexcept {
                     ImGui::PushID(name);
                     ImGuiCustom::colorPicker(name, trail);
@@ -431,11 +433,13 @@ void GUI::drawESPTab() noexcept
                     ImGui::PopID();
                 };
 
-                trailPicker("Local Player", config->projectiles[currentItem].trails.localPlayer);
-                trailPicker("Allies", config->projectiles[currentItem].trails.allies);
-                trailPicker("Enemies", config->projectiles[currentItem].trails.enemies);
+                trailPicker("Local Player", trails.localPlayer);
+                trailPicker("Allies", trails.allies);
+                trailPicker("Enemies", trails.enemies);
                 ImGui::EndPopup();
             }
+
+            ImGui::PopID();
         }
     }
 

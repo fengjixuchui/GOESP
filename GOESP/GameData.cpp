@@ -33,6 +33,12 @@ static std::list<ProjectileData> projectileData;
 
 void GameData::update() noexcept
 {
+    static int lastFrame;
+    if (lastFrame == memory->globalVars->framecount)
+        return;
+
+    lastFrame = memory->globalVars->framecount;
+
     Lock lock;
 
     playerData.clear();
@@ -182,20 +188,24 @@ void LocalPlayerData::update() noexcept
     }
     fov = localPlayer->fovStart();
     aimPunch = localPlayer->getAimPunch();
-    origin = localPlayer->getAbsOrigin();
+    if (const auto obs = localPlayer->getObserverTarget())
+        origin = obs->getAbsOrigin();
+    else
+        origin = localPlayer->getAbsOrigin();
 }
 
 BaseData::BaseData(Entity* entity) noexcept
 {
     distanceToLocal = entity->getAbsOrigin().distTo(localPlayerData.origin);
 
-    if (const auto model = entity->getModel()) {
-        modelMins = model->mins;
-        modelMaxs = model->maxs;
+    if (entity->isPlayer()) {
+        obbMins = entity->getCollideable()->obbMins();
+        obbMaxs = entity->getCollideable()->obbMaxs();
+    } else if (const auto model = entity->getModel()) {
+        obbMins = model->mins;
+        obbMaxs = model->maxs;
     }
 
-    obbMins = entity->getCollideable()->obbMins();
-    obbMaxs = entity->getCollideable()->obbMaxs();
     coordinateFrame = entity->toWorldTransform();
 }
 
