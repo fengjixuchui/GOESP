@@ -1,5 +1,3 @@
-#include <Windows.h>
-#include <d3d9types.h>
 #include <list>
 #include <mutex>
 
@@ -19,10 +17,11 @@
 #include "SDK/LocalPlayer.h"
 #include "SDK/ModelInfo.h"
 #include "SDK/Sound.h"
+#include "SDK/UtlVector.h"
 #include "SDK/WeaponId.h"
 #include "SDK/WeaponInfo.h"
 
-static D3DMATRIX viewMatrix;
+static Matrix4x4 viewMatrix;
 static LocalPlayerData localPlayerData;
 static std::vector<PlayerData> playerData;
 static std::vector<ObserverData> observerData;
@@ -30,6 +29,7 @@ static std::vector<WeaponData> weaponData;
 static std::vector<EntityData> entityData;
 static std::vector<LootCrateData> lootCrateData;
 static std::list<ProjectileData> projectileData;
+static std::vector<BombData> bombData;
 
 void GameData::update() noexcept
 {
@@ -46,12 +46,16 @@ void GameData::update() noexcept
     weaponData.clear();
     entityData.clear();
     lootCrateData.clear();
+    bombData.clear();
 
     if (!localPlayer)
         return;
 
     viewMatrix = interfaces->engine->worldToScreenMatrix();
     localPlayerData.update();
+    
+    for (int i = 0; i < memory->plantedC4s->size; ++i)
+        bombData.emplace_back((*memory->plantedC4s)[i]);
 
     const auto observerTarget = localPlayer->getObserverMode() == ObsMode::InEye ? localPlayer->getObserverTarget() : nullptr;
 
@@ -67,7 +71,7 @@ void GameData::update() noexcept
             if (entity->isAlive())
                 playerData.emplace_back(entity);
             else if (const auto obs = entity->getObserverTarget())
-                observerData.push_back(ObserverData{ entity->getPlayerName(), obs->getPlayerName(), obs == localPlayer.get() });
+                observerData.emplace_back(entity, obs, obs == localPlayer.get());
         } else {
             if (entity->isWeapon()) {
                 if (entity->ownerEntity() == -1)
@@ -110,6 +114,11 @@ void GameData::update() noexcept
         }
     }
 
+    std::sort(playerData.begin(), playerData.end());
+    std::sort(weaponData.begin(), weaponData.end());
+    std::sort(entityData.begin(), entityData.end());
+    std::sort(lootCrateData.begin(), lootCrateData.end());
+
     for (auto it = projectileData.begin(); it != projectileData.end();) {
         if (!interfaces->entityList->getEntityFromHandle(it->handle)) {
             it->exploded = true;
@@ -129,7 +138,7 @@ void GameData::clearProjectileList() noexcept
     projectileData.clear();
 }
 
-const _D3DMATRIX& GameData::toScreenMatrix() noexcept
+const Matrix4x4& GameData::toScreenMatrix() noexcept
 {
     return viewMatrix;
 }
@@ -178,7 +187,6 @@ void LocalPlayerData::update() noexcept
 
     exists = true;
     alive = localPlayer->isAlive();
-    inBombZone = localPlayer->inBombZone();
 
     if (const auto activeWeapon = localPlayer->getActiveWeapon()) {
         inReload = activeWeapon->isInReload();
@@ -186,9 +194,13 @@ void LocalPlayerData::update() noexcept
         noScope = activeWeapon->isSniperRifle() && !localPlayer->isScoped();
         nextWeaponAttack = activeWeapon->nextPrimaryAttack();
     }
-    fov = localPlayer->fovStart();
+    fov = localPlayer->fov() ? localPlayer->fov() : localPlayer->defaultFov();
+    flashDuration = localPlayer->flashDuration();
+
     aimPunch = localPlayer->getAimPunch();
-    if (const auto obs = localPlayer->getObserverTarget())
+
+    const auto obsMode = localPlayer->getObserverMode();
+    if (const auto obs = localPlayer->getObserverTarget(); obs && obsMode != ObsMode::Roaming && obsMode != ObsMode::Deathcam)
         origin = obs->getAbsOrigin();
     else
         origin = localPlayer->getAbsOrigin();
@@ -197,10 +209,11 @@ void LocalPlayerData::update() noexcept
 BaseData::BaseData(Entity* entity) noexcept
 {
     distanceToLocal = entity->getAbsOrigin().distTo(localPlayerData.origin);
-
+ 
     if (entity->isPlayer()) {
-        obbMins = entity->getCollideable()->obbMins();
-        obbMaxs = entity->getCollideable()->obbMaxs();
+        const auto collideable = entity->getCollideable();
+        obbMins = collideable->obbMins();
+        obbMaxs = collideable->obbMaxs();
     } else if (const auto model = entity->getModel()) {
         obbMins = model->mins;
         obbMaxs = model->maxs;
@@ -232,7 +245,7 @@ ProjectileData::ProjectileData(Entity* projectile) noexcept : BaseData { project
     name = [](Entity* projectile) {
         switch (projectile->getClientClass()->classId) {
         case ClassId::BaseCSGrenadeProjectile:
-            if (const auto model = projectile->getModel(); model && std::strstr(model->name, "flashbang"))
+            if (const auto model = projectile->getModel(); model && strstr(model->name, "flashbang"))
                 return "Flashbang";
             else
                 return "HE Grenade";
@@ -282,7 +295,7 @@ PlayerData::PlayerData(Entity* entity) noexcept : BaseData{ entity }
     audible = isEntityAudible(entity->index());
     spotted = entity->spotted();
     flashDuration = entity->flashDuration();
-    name = entity->getPlayerName();
+    entity->getPlayerName(name);
 
     if (const auto weapon = entity->getActiveWeapon()) {
         audible = audible || isEntityAudible(weapon->index());
@@ -309,6 +322,20 @@ PlayerData::PlayerData(Entity* entity) noexcept : BaseData{ entity }
             continue;
 
         bones.emplace_back(boneMatrices[i].origin(), boneMatrices[bone->parent].origin());
+    }
+
+    const auto set = studioModel->getHitboxSet(entity->hitboxSet());
+    if (!set)
+        return;
+
+    const auto headBox = set->getHitbox(0);
+
+    headMins = headBox->bbMin.transform(boneMatrices[headBox->bone]);
+    headMaxs = headBox->bbMax.transform(boneMatrices[headBox->bone]);
+
+    if (headBox->capsuleRadius > 0.0f) {
+        headMins -= headBox->capsuleRadius;
+        headMaxs += headBox->capsuleRadius;
     }
 }
 
@@ -429,4 +456,16 @@ LootCrateData::LootCrateData(Entity* entity) noexcept : BaseData{ entity }
         default: return nullptr;
         }
     }(model->name);
+}
+
+ObserverData::ObserverData(Entity* entity, Entity* obs, bool targetIsLocalPlayer) noexcept
+{
+    entity->getPlayerName(name);
+    obs->getPlayerName(target);
+    this->targetIsLocalPlayer = targetIsLocalPlayer;
+}
+
+BombData::BombData(Entity* entity) noexcept
+{
+
 }

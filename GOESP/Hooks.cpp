@@ -17,30 +17,25 @@
 #include "SDK/GlobalVars.h"
 #include "SDK/InputSystem.h"
 
+#ifdef _WIN32
 #include <intrin.h>
+#endif
 
+#ifdef _WIN32
 static LRESULT WINAPI wndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) noexcept
 {
-    static const auto once = [](HWND window) noexcept {
-        eventListener = std::make_unique<EventListener>();
-        config = std::make_unique<Config>("GOESP");
-
-        ImGui::CreateContext();
-        ImGui_ImplWin32_Init(window);
-        gui = std::make_unique<GUI>();
-
+    if (hooks->getState() == Hooks::State::NotInstalled)
         hooks->install();
 
-        return true;
-    }(window);
+    if (hooks->getState() == Hooks::State::Installed) {
+        GameData::update();
 
-    GameData::update();
+        LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+        ImGui_ImplWin32_WndProcHandler(window, msg, wParam, lParam);
+        interfaces->inputSystem->enableInput(!gui->open);
+    }
 
-    LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    ImGui_ImplWin32_WndProcHandler(window, msg, wParam, lParam);
-    interfaces->inputSystem->enableInput(!gui->open);
-
-    return CallWindowProc(hooks->wndProc, window, msg, wParam, lParam);
+    return CallWindowProcW(hooks->wndProc, window, msg, wParam, lParam);
 }
 
 static HRESULT D3DAPI reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params) noexcept
@@ -106,18 +101,63 @@ Hooks::Hooks(HMODULE module) noexcept
     _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
     _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
 
-    // interfaces and memory shouldn't be initialized in wndProc because they show MessageBox on error which would cause deadlock
+    window = FindWindowW(L"Valve001", nullptr);
+}
+
+#elif __linux__
+
+static int pollEvent(SDL_Event* window) noexcept
+{
+    // GameData::update();
+    if (hooks->getState() == Hooks::State::NotInstalled)
+        hooks->install();
+
+    if (hooks->getState() == Hooks::State::Installed) {
+        GameData::update();
+
+        interfaces->inputSystem->enableInput(!gui->open);
+    }
+
+    return hooks->pollEvent(window);
+}
+
+Hooks::Hooks() noexcept
+{
     interfaces = std::make_unique<const Interfaces>();
     memory = std::make_unique<const Memory>();
+}
 
-    window = FindWindowW(L"Valve001", nullptr);
-    wndProc = WNDPROC(SetWindowLongPtrA(window, GWLP_WNDPROC, LONG_PTR(::wndProc)));
+#endif
+
+void Hooks::setup() noexcept
+{
+#ifdef _WIN32
+    wndProc = WNDPROC(SetWindowLongPtrW(window, GWLP_WNDPROC, LONG_PTR(::wndProc)));
+#elif __linux__
+    pollEvent = *reinterpret_cast<decltype(pollEvent)*>(memory->pollEvent);
+    *reinterpret_cast<decltype(::pollEvent)**>(memory->pollEvent) = ::pollEvent;
+#endif
 }
 
 void Hooks::install() noexcept
 {
-    assert(memory);
+    state = State::Installing;
 
+#ifndef __linux__
+    interfaces = std::make_unique<const Interfaces>();
+    memory = std::make_unique<const Memory>();
+#endif
+
+    eventListener = std::make_unique<EventListener>();
+    config = std::make_unique<Config>("GOESP");
+
+    ImGui::CreateContext();
+#ifdef _WIN32
+    ImGui_ImplWin32_Init(window);
+#endif
+    gui = std::make_unique<GUI>();
+
+#ifdef _WIN32
     reset = *reinterpret_cast<decltype(reset)*>(memory->reset);
     *reinterpret_cast<decltype(::reset)**>(memory->reset) = ::reset;
 
@@ -126,7 +166,12 @@ void Hooks::install() noexcept
 
     setCursorPos = *reinterpret_cast<decltype(setCursorPos)*>(memory->setCursorPos);
     *reinterpret_cast<decltype(::setCursorPos)**>(memory->setCursorPos) = ::setCursorPos;
+#endif
+
+    state = State::Installed;
 }
+
+#ifdef _WIN32
 
 extern "C" BOOL WINAPI _CRT_INIT(HMODULE module, DWORD reason, LPVOID reserved);
 
@@ -145,14 +190,20 @@ static DWORD WINAPI waitOnUnload(HMODULE hModule) noexcept
     FreeLibraryAndExitThread(hModule, 0);
 }
 
+#endif
+
 void Hooks::uninstall() noexcept
 {
+#ifdef _WIN32
+
     *reinterpret_cast<void**>(memory->reset) = reset;
     *reinterpret_cast<void**>(memory->present) = present;
     *reinterpret_cast<void**>(memory->setCursorPos) = setCursorPos;
 
-    SetWindowLongPtrA(window, GWLP_WNDPROC, LONG_PTR(wndProc));
+    SetWindowLongPtrW(window, GWLP_WNDPROC, LONG_PTR(wndProc));
 
     if (HANDLE thread = CreateThread(nullptr, 0, LPTHREAD_START_ROUTINE(waitOnUnload), module, 0, nullptr))
         CloseHandle(thread);
+
+#endif
 }

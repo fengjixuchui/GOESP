@@ -17,7 +17,7 @@ struct EntityData;
 struct LootCrateData;
 struct ProjectileData;
 
-struct _D3DMATRIX;
+struct Matrix4x4;
 
 namespace GameData
 {
@@ -33,7 +33,7 @@ namespace GameData
     };
 
     // You have to acquire lock before using these getters
-    const _D3DMATRIX& toScreenMatrix() noexcept;
+    const Matrix4x4& toScreenMatrix() noexcept;
     const LocalPlayerData& local() noexcept;
     const std::vector<PlayerData>& players() noexcept;
     const std::vector<ObserverData>& observers() noexcept;
@@ -48,12 +48,12 @@ struct LocalPlayerData {
 
     bool exists = false;
     bool alive = false;
-    bool inBombZone = false;
     bool inReload = false;
     bool shooting = false;
     bool noScope = false;
     float nextWeaponAttack = 0.0f;
     int fov;
+    float flashDuration;
     Vector aimPunch;
     Vector origin;
 };
@@ -62,6 +62,11 @@ class Entity;
 
 struct BaseData {
     BaseData(Entity* entity) noexcept;
+
+    constexpr auto operator<(const BaseData& other) const
+    {
+        return distanceToLocal > other.distanceToLocal;
+    }
 
     float distanceToLocal;
     Vector obbMins, obbMaxs;
@@ -100,9 +105,10 @@ struct PlayerData : BaseData {
     bool audible;
     bool spotted;
     float flashDuration;
-    std::string name;
+    char name[128];
     std::string activeWeapon;
     std::vector<std::pair<Vector, Vector>> bones;
+    Vector headMins, headMaxs;
 };
 
 struct WeaponData : BaseData {
@@ -122,7 +128,17 @@ struct LootCrateData : BaseData {
 };
 
 struct ObserverData {
-    std::string name;
-    std::string target;
+    ObserverData(Entity* entity, Entity* obs, bool targetIsLocalPlayer) noexcept;
+
+    char name[128];
+    char target[128];
     bool targetIsLocalPlayer;
+};
+
+struct BombData {
+    BombData(Entity* entity) noexcept;
+
+    int bombsite;
+    float blowTime;
+    float defuseCountDown;
 };

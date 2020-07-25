@@ -82,6 +82,8 @@ void GUI::render() noexcept
         }
         ImGui::PopID();
 
+        ImGui::Checkbox("Ignore Flashbang", &config->ignoreFlashbang);
+
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Configs")) {
@@ -363,7 +365,7 @@ void GUI::drawESPTab() noexcept
 
         ImGui::Separator();
 
-        constexpr auto spacing = 220.0f;
+        constexpr auto spacing = 250.0f;
         ImGuiCustom::colorPicker("Snapline", sharedConfig.snapline);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90.0f);
@@ -388,32 +390,46 @@ void GUI::drawESPTab() noexcept
         ImGui::PopID();
 
         ImGuiCustom::colorPicker("Name", sharedConfig.name);
-        ImGui::SameLine(spacing);
-        ImGuiCustom::colorPicker("Text Background", sharedConfig.textBackground);
-        ImGui::SetNextItemWidth(95.0f);
-        ImGui::InputFloat("Text Cull Distance", &sharedConfig.textCullDistance, 0.4f, 0.8f, "%.1fm");
-        sharedConfig.textCullDistance = std::clamp(sharedConfig.textCullDistance, 0.0f, 999.9f);
+        if (currentCategory <= 3)
+            ImGui::SameLine(spacing);
 
         if (currentCategory < 2) {
             auto& playerConfig = getConfigPlayer(currentCategory, currentItem);
 
             ImGuiCustom::colorPicker("Weapon", playerConfig.weapon);
-            ImGui::SameLine(spacing);
             ImGuiCustom::colorPicker("Flash Duration", playerConfig.flashDuration);
-            ImGui::Checkbox("Audible Only", &playerConfig.audibleOnly);
             ImGui::SameLine(spacing);
             ImGuiCustom::colorPicker("Skeleton", playerConfig.skeleton);
+            ImGui::Checkbox("Audible Only", &playerConfig.audibleOnly);
+            ImGui::SameLine(spacing);
             ImGui::Checkbox("Spotted Only", &playerConfig.spottedOnly);
+
+            ImGuiCustom::colorPicker("Head Box", playerConfig.headBox);
+            ImGui::SameLine();
+
+            ImGui::PushID("Head Box");
+
+            if (ImGui::Button("..."))
+                ImGui::OpenPopup("");
+
+            if (ImGui::BeginPopup("")) {
+                ImGui::SetNextItemWidth(95.0f);
+                ImGui::Combo("Type", &playerConfig.headBox.type, "2D\0" "2D corners\0" "3D\0" "3D corners\0");
+                ImGui::SetNextItemWidth(275.0f);
+                ImGui::SliderFloat3("Scale", playerConfig.headBox.scale.data(), 0.0f, 0.50f, "%.2f");
+                ImGui::EndPopup();
+            }
+
+            ImGui::PopID();
+
         } else if (currentCategory == 2) {
             auto& weaponConfig = config->weapons[currentItem];
-
-           // if (currentItem != 7)
-                ImGuiCustom::colorPicker("Ammo", weaponConfig.ammo);
+            ImGuiCustom::colorPicker("Ammo", weaponConfig.ammo);
         } else if (currentCategory == 3) {
             auto& trails = config->projectiles[currentItem].trails;
 
             ImGui::Checkbox("Trails", &trails.enabled);
-            ImGui::SameLine();
+            ImGui::SameLine(spacing + 77.0f);
             ImGui::PushID("Trails");
 
             if (ImGui::Button("..."))
@@ -441,6 +457,10 @@ void GUI::drawESPTab() noexcept
 
             ImGui::PopID();
         }
+
+        ImGui::SetNextItemWidth(95.0f);
+        ImGui::InputFloat("Text Cull Distance", &sharedConfig.textCullDistance, 0.4f, 0.8f, "%.1fm");
+        sharedConfig.textCullDistance = std::clamp(sharedConfig.textCullDistance, 0.0f, 999.9f);
     }
 
     ImGui::EndChild();

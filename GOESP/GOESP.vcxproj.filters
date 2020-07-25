@@ -217,5 +217,11 @@
     <ClInclude Include="SDK\ClientTools.h">
       <Filter>SDK</Filter>
     </ClInclude>
+    <ClInclude Include="SDK\CallingConvention.h">
+      <Filter>SDK</Filter>
+    </ClInclude>
+    <ClInclude Include="SDK\UtlVector.h">
+      <Filter>SDK</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
