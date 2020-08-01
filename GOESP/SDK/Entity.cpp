@@ -16,10 +16,13 @@
 
 bool Entity::canSee(Entity* other, const Vector& pos) noexcept
 {
-    Trace trace;
     const auto eyePos = getEyePosition();
+    if (memory->lineGoesThroughSmoke(eyePos, pos, 1))
+        return false;
+
+    Trace trace;
     interfaces->engineTrace->traceRay({ eyePos, pos }, 0x46004009, this, trace);
-    return (trace.entity == other || trace.fraction > 0.97f) && !memory->lineGoesThroughSmoke(eyePos, pos, 1);
+    return trace.entity == other || trace.fraction > 0.97f;
 }
 
 bool Entity::visibleTo(Entity* other) noexcept
@@ -46,9 +49,9 @@ bool Entity::visibleTo(Entity* other) noexcept
     if (!setupBones(boneMatrices, MAXSTUDIOBONES, BONE_USED_BY_HITBOX, memory->globalVars->currenttime))
         return false;
 
-    // This is wrong! TODO: use correct hitboxes
-    for (const auto boxNum : { 9, 14, 17 }) { // guts, left & right elbow hitbox
-        if (boxNum < set->numHitboxes && other->canSee(this, boneMatrices[set->getHitbox(boxNum)->bone].origin()))
+    for (const auto boxNum : { Hitbox::Belly, Hitbox::LeftForearm, Hitbox::RightForearm }) {
+        const auto hitbox = set->getHitbox(boxNum);
+        if (hitbox && other->canSee(this, boneMatrices[hitbox->bone].origin()))
             return true;
     }
 

@@ -6,6 +6,8 @@
 #include <tuple>
 #include <vector>
 
+#include "imgui/imgui.h"
+
 #include "SDK/Vector.h"
 
 struct LocalPlayerData;
@@ -104,10 +106,11 @@ struct PlayerData : BaseData {
     bool visible = false;
     bool audible;
     bool spotted;
+    bool immune;
     float flashDuration;
     char name[128];
     std::string activeWeapon;
-    std::vector<std::pair<Vector, Vector>> bones;
+    std::vector<std::pair<ImVec2, ImVec2>> bones;
     Vector headMins, headMaxs;
 };
 
