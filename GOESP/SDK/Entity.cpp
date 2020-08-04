@@ -17,6 +17,7 @@
 bool Entity::canSee(Entity* other, const Vector& pos) noexcept
 {
     const auto eyePos = getEyePosition();
+
     if (memory->lineGoesThroughSmoke(eyePos, pos, 1))
         return false;
 

@@ -83,7 +83,6 @@ struct EntityData final : BaseData {
 
 struct ProjectileData : BaseData {
     ProjectileData(Entity* projectile) noexcept;
-
     void update(Entity* projectile) noexcept;
 
     constexpr auto operator==(int otherHandle) const noexcept

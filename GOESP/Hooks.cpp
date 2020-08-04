@@ -20,6 +20,8 @@
 #include "imgui/imgui_impl_dx9.h"
 #include "imgui/imgui_impl_win32.h"
 #elif __linux__
+#include <SDL2/SDL.h>
+
 #include "imgui/GL/gl3w.h"
 #include "imgui/imgui_impl_sdl.h"
 #include "imgui/imgui_impl_opengl3.h"
@@ -116,25 +118,46 @@ static int pollEvent(SDL_Event* event) noexcept
     if (hooks->getState() == Hooks::State::NotInstalled)
         hooks->install();
 
+    const auto result = hooks->pollEvent(event);
+
     if (hooks->getState() == Hooks::State::Installed) {
         GameData::update();
-        interfaces->inputSystem->enableInput(!gui->open);
+        if (result && ImGui_ImplSDL2_ProcessEvent(event) && gui->open)
+            event->type = 0;
     }
 
-    ImGui_ImplSDL2_ProcessEvent(event);
-    return hooks->pollEvent(event);
+    return result;
 }
 
 static void swapWindow(SDL_Window* window) noexcept
 {
     static const auto _ = ImGui_ImplSDL2_InitForOpenGL(window, nullptr);
 
+    if (config->loadScheduledFonts()) {
+        ImGui_ImplOpenGL3_DestroyDeviceObjects();
+    }
+
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame(window);
 
     ImGui::NewFrame();
 
+    ESP::render();
+    Misc::drawReloadProgress(ImGui::GetBackgroundDrawList());
+    Misc::drawRecoilCrosshair(ImGui::GetBackgroundDrawList());
+    Misc::drawNoscopeCrosshair(ImGui::GetBackgroundDrawList());
+    Misc::purchaseList();
+    Misc::drawObserverList();
+    Misc::drawFpsCounter();
+
     gui->render();
+
+    if (ImGui::IsKeyPressed(SDL_SCANCODE_INSERT, false)) {
+        gui->open = !gui->open;
+        if (!gui->open)
+            interfaces->inputSystem->resetInputState();
+    }
+    ImGui::GetIO().MouseDrawCursor = gui->open;
 
     ImGui::EndFrame();
     ImGui::Render();
@@ -147,6 +170,12 @@ Hooks::Hooks() noexcept
 {
     interfaces = std::make_unique<const Interfaces>();
     memory = std::make_unique<const Memory>();
+}
+
+static void warpMouseInWindow(SDL_Window* window, int x, int y) noexcept
+{
+    if (!gui->open)
+    	hooks->warpMouseInWindow(window, x, y);
 }
 
 #endif
@@ -194,6 +223,9 @@ void Hooks::install() noexcept
 #elif __linux__
     swapWindow = *reinterpret_cast<decltype(swapWindow)*>(memory->swapWindow);
     *reinterpret_cast<decltype(::swapWindow)**>(memory->swapWindow) = ::swapWindow;
+
+    warpMouseInWindow = *reinterpret_cast<decltype(warpMouseInWindow)*>(memory->warpMouseInWindow);
+    *reinterpret_cast<decltype(::warpMouseInWindow)**>(memory->warpMouseInWindow) = ::warpMouseInWindow;
 #endif
 
     state = State::Installed;
@@ -232,6 +264,12 @@ void Hooks::uninstall() noexcept
 
     if (HANDLE thread = CreateThread(nullptr, 0, LPTHREAD_START_ROUTINE(waitOnUnload), module, 0, nullptr))
         CloseHandle(thread);
+
+#elif __linux__
+
+    *reinterpret_cast<decltype(pollEvent)*>(memory->pollEvent) = pollEvent;
+    *reinterpret_cast<decltype(swapWindow)*>(memory->swapWindow) = swapWindow;
+    *reinterpret_cast<decltype(warpMouseInWindow)*>(memory->warpMouseInWindow) = warpMouseInWindow;
 
 #endif
 }

@@ -59,6 +59,23 @@ Config::Config(const char* folderName) noexcept
     logfont.lfFaceName[0] = '\0';
 
     EnumFontFamiliesExA(GetDC(nullptr), &logfont, fontCallback, (LPARAM)&systemFonts, 0);
+#elif __linux__
+    if (auto pipe = popen("fc-list :lang=en -f \"%{family[0]} %{style[0]} %{file}\\n\" | grep .ttf", "r")) {
+        char* line = nullptr;
+        std::size_t n = 0;
+        while (getline(&line, &n, pipe) != -1) {
+            auto path = strstr(line, "/");
+            if (path <= line)
+                continue;
+           
+            path[-1] = path[strlen(path) - 1] = '\0';
+            systemFonts.emplace_back(line);
+            systemFontPaths.emplace_back(path);
+        }
+        if (line)
+            free(line);
+        pclose(pipe);
+    }
 #endif
     std::sort(std::next(systemFonts.begin()), systemFonts.end());
 }
@@ -139,15 +156,14 @@ static void from_json(const json& j, ColorToggleThicknessRounding& cttr)
 
 static void from_json(const json& j, Font& f)
 {
-    read<value_t::string>(j, "Name", f.name);
+    read<value_t::string>(j, "Name", f.name); 
 
-    if (!f.name.empty())
-        config->scheduleFontLoad(f.name);
-
-    if (const auto it = std::find_if(std::cbegin(config->systemFonts), std::cend(config->systemFonts), [&f](const auto& e) { return e == f.name; }); it != std::cend(config->systemFonts))
+    if (const auto it = std::find_if(std::cbegin(config->systemFonts), std::cend(config->systemFonts), [&f](const auto& e) { return e == f.name; }); it != std::cend(config->systemFonts)) {
         f.index = std::distance(std::cbegin(config->systemFonts), it);
-    else
+        config->scheduleFontLoad(f.index);
+    } else {
         f.index = 0;
+    }
 }
 
 static void from_json(const json& j, Snapline& s)
@@ -460,9 +476,9 @@ void Config::save() noexcept
         out << std::setw(2) << j;
 }
 
-void Config::scheduleFontLoad(const std::string& name) noexcept
+void Config::scheduleFontLoad(std::size_t index) noexcept
 {
-    scheduledFonts.push_back(name);
+    scheduledFonts.push_back(index);
 }
 
 #ifdef _WIN32
@@ -503,48 +519,44 @@ bool Config::loadScheduledFonts() noexcept
 {
     bool result = false;
 
-    for (const auto& fontName : scheduledFonts) {
-        if (fontName == "Default") {
-            if (fonts.find("Default") == fonts.cend()) {
-                ImFontConfig cfg;
-                cfg.OversampleH = cfg.OversampleV = 1;
-                cfg.PixelSnapH = true;
-
-                Font newFont;
-
-                cfg.SizePixels = 13.0f;
-                newFont.big = ImGui::GetIO().Fonts->AddFontDefault(&cfg);
-
-                cfg.SizePixels = 10.0f;
-                newFont.medium = ImGui::GetIO().Fonts->AddFontDefault(&cfg);
-
-                cfg.SizePixels = 8.0f;
-                newFont.tiny = ImGui::GetIO().Fonts->AddFontDefault(&cfg);
-
-                fonts.emplace(fontName, newFont);
-                result = true;
-            }
-            continue;
-        }
-
+    for (const auto fontIndex : scheduledFonts) {
+        const auto& fontName = systemFonts[fontIndex];
 #ifdef _WIN32
-        const auto [fontData, fontDataSize] = getFontData(fontName);
-        if (fontDataSize == GDI_ERROR)
+        const auto& fontPath = fontName;
+#elif __linux__
+        const auto& fontPath = systemFontPaths[fontIndex];
+#endif
+        if (fonts.find(fontName) != fonts.cend())
             continue;
 
-        if (fonts.find(fontName) == fonts.cend()) {
-            ImFontConfig cfg;
+        ImFontConfig cfg;
+        Font newFont;
+
+        if (fontName == "Default") {
+            cfg.SizePixels = 13.0f;
+            newFont.big = ImGui::GetIO().Fonts->AddFontDefault(&cfg);
+
+            cfg.SizePixels = 10.0f;
+            newFont.medium = ImGui::GetIO().Fonts->AddFontDefault(&cfg);
+
+            cfg.SizePixels = 8.0f;
+            newFont.tiny = ImGui::GetIO().Fonts->AddFontDefault(&cfg);
+
+            fonts.emplace(fontName, newFont);
+        } else {
+            const auto [fontData, fontDataSize] = getFontData(fontPath);
+            if (fontDataSize == GDI_ERROR)
+                continue;
+
             cfg.FontDataOwnedByAtlas = false;
             const auto ranges = Helpers::getFontGlyphRanges();
 
-            Font newFont;
             newFont.tiny = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(fontData.get(), fontDataSize, 8.0f, &cfg, ranges);
             newFont.medium = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(fontData.get(), fontDataSize, 10.0f, &cfg, ranges);
             newFont.big = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(fontData.get(), fontDataSize, 13.0f, &cfg, ranges);
             fonts.emplace(fontName, newFont);
-            result = true;
         }
-#endif
+        result = true;
     }
     scheduledFonts.clear();
     return result;
