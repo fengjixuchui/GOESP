@@ -13,10 +13,11 @@
 #include <link.h>
 #endif
 
-#include "SDK/CallingConvention.h"
+#include "SDK/Platform.h"
 
 class Entity;
 class ItemSystem;
+class PlayerResource;
 class WeaponSystem;
 template <typename T>
 class UtlVector;
@@ -35,11 +36,13 @@ public:
     ActiveChannels* activeChannels;
     Channel* channels;
     UtlVector<Entity*>* plantedC4s;
+    PlayerResource** playerResource;
 
     bool(__THISCALL* isOtherEnemy)(Entity*, Entity*);
     std::add_pointer_t<void __CDECL(const char* msg, ...)> debugMsg;
     std::add_pointer_t<ItemSystem* __CDECL()> itemSystem;
     std::add_pointer_t<bool __CDECL(Vector, Vector, short)> lineGoesThroughSmoke;
+    const wchar_t*(__THISCALL* getDecoratedPlayerName)(PlayerResource* pr, int index, wchar_t* buffer, int buffsize, int flags);
 
 #ifdef _WIN32
     std::uintptr_t reset;
@@ -58,27 +61,28 @@ private:
             if (MODULEINFO moduleInfo; GetModuleInformation(GetCurrentProcess(), handle, &moduleInfo, sizeof(moduleInfo)))
                 return std::make_pair(moduleInfo.lpBaseOfDll, moduleInfo.SizeOfImage);
         }
+        return {};
 #elif __linux__
         struct ModuleInfo {
-            std::string name;
-            void* base;
-            std::size_t size;
-        };
-        static std::vector<ModuleInfo> modules;
+            const char* name;
+            void* base = nullptr;
+            std::size_t size = 0;
+        } moduleInfo;
 
-        if (modules.empty()) {
-            dl_iterate_phdr([](struct dl_phdr_info* info, std::size_t, void*) {
-                modules.emplace_back(info->dlpi_name,
-                             (void*)(info->dlpi_addr + info->dlpi_phdr[0].p_vaddr),
-                        (std::size_t)info->dlpi_phdr[0].p_memsz);
-                return 0;
-            }, nullptr);
-        }
+        moduleInfo.name = name;
 
-        if (const auto it = std::find_if(modules.begin(), modules.end(), [&name](const ModuleInfo& mi) { return mi.name.ends_with(name); }); it != modules.end())
-            return std::make_pair(it->base, it->size);
+        dl_iterate_phdr([](struct dl_phdr_info* info, std::size_t, void* data) {
+            const auto moduleInfo = reinterpret_cast<ModuleInfo*>(data);
+       	    if (std::string_view{ info->dlpi_name }.ends_with(moduleInfo->name)) {
+                moduleInfo->base = (void*)(info->dlpi_addr + info->dlpi_phdr[0].p_vaddr);
+                moduleInfo->size = info->dlpi_phdr[0].p_memsz;
+                return 1;
+       	    }
+            return 0;
+        }, &moduleInfo);
+            
+       return std::make_pair(moduleInfo.base, moduleInfo.size);
 #endif
-        return {};
     }
 
     static std::uintptr_t findPattern(const char* module, const char* pattern) noexcept

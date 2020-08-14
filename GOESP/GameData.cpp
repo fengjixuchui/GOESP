@@ -81,7 +81,7 @@ void GameData::update() noexcept
     const auto observerTarget = localPlayer->getObserverMode() == ObsMode::InEye ? localPlayer->getObserverTarget() : nullptr;
 
     Entity* entity = nullptr;
-    while (entity = interfaces->clientTools->nextEntity(entity)) {
+    while ((entity = interfaces->clientTools->nextEntity(entity))) {
         if (entity->isDormant())
             continue;
 
@@ -130,6 +130,9 @@ void GameData::update() noexcept
                     break;
                 case ClassId::LootCrate:
                     lootCrateData.emplace_back(entity);
+                    break;
+                default:
+                    break;
                 }
             }
         }
@@ -285,7 +288,7 @@ ProjectileData::ProjectileData(Entity* projectile) noexcept : BaseData { project
         if (thrower == localPlayer.get())
             thrownByLocalPlayer = true;
         else
-            thrownByEnemy = memory->isOtherEnemy(localPlayer.get(), thrower);
+            thrownByEnemy = thrower->isEnemy();
     }
 
     handle = projectile->handle();
@@ -295,14 +298,14 @@ void ProjectileData::update(Entity* projectile) noexcept
 {
     static_cast<BaseData&>(*this) = { projectile };
 
-    if (const auto pos = projectile->getAbsOrigin(); trajectory.size() < 1 || trajectory[trajectory.size() - 1].second != pos)
+    if (const auto& pos = projectile->getAbsOrigin(); trajectory.size() < 1 || trajectory[trajectory.size() - 1].second != pos)
         trajectory.emplace_back(memory->globalVars->realtime, pos);
 }
 
 PlayerData::PlayerData(Entity* entity) noexcept : BaseData{ entity }
 {
     if (localPlayer) {
-        enemy = memory->isOtherEnemy(entity, localPlayer.get());
+        enemy = entity->isEnemy();
         visible = entity->visibleTo(localPlayer.get());
     }
 

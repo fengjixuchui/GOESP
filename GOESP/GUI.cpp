@@ -30,7 +30,16 @@ void GUI::render() noexcept
     if (!open)
         return;
 
-    ImGui::Begin("GOESP", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
+    ImGui::Begin(
+        "GOESP for "
+#ifdef _WIN32
+        "Windows"
+#elif __linux__
+        "Linux"
+#else
+    #error("Unsupported platform!")
+#endif
+        , nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
 
     if (!ImGui::BeginTabBar("##tabbar", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_NoTooltip)) {
         ImGui::End();
@@ -89,7 +98,11 @@ void GUI::render() noexcept
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Configs")) {
+#ifdef _WIN32
         ImGui::TextUnformatted("Config is saved as \"config.txt\" inside GOESP directory in Documents");
+#elif __linux__
+        ImGui::TextUnformatted("Config is saved as \"config.txt\" inside ~/GOESP directory");
+#endif
         if (ImGui::Button("Load"))
             config->load();
         if (ImGui::Button("Save"))
@@ -386,6 +399,7 @@ void GUI::drawESPTab() noexcept
             ImGui::Combo("Type", &sharedConfig.box.type, "2D\0" "2D corners\0" "3D\0" "3D corners\0");
             ImGui::SetNextItemWidth(275.0f);
             ImGui::SliderFloat3("Scale", sharedConfig.box.scale.data(), 0.0f, 0.50f, "%.2f");
+            ImGuiCustom::colorPicker("Fill", sharedConfig.box.fill);
             ImGui::EndPopup();
         }
 
@@ -419,6 +433,7 @@ void GUI::drawESPTab() noexcept
                 ImGui::Combo("Type", &playerConfig.headBox.type, "2D\0" "2D corners\0" "3D\0" "3D corners\0");
                 ImGui::SetNextItemWidth(275.0f);
                 ImGui::SliderFloat3("Scale", playerConfig.headBox.scale.data(), 0.0f, 0.50f, "%.2f");
+                ImGuiCustom::colorPicker("Fill", playerConfig.headBox.fill);
                 ImGui::EndPopup();
             }
 
