@@ -142,15 +142,17 @@ static void swapWindow(SDL_Window* window) noexcept
 
     ImGui::NewFrame();
 
-    ESP::render();
-    Misc::drawReloadProgress(ImGui::GetBackgroundDrawList());
-    Misc::drawRecoilCrosshair(ImGui::GetBackgroundDrawList());
-    Misc::drawNoscopeCrosshair(ImGui::GetBackgroundDrawList());
-    Misc::purchaseList();
-    Misc::drawObserverList();
-    Misc::drawFpsCounter();
+    if (const auto& displaySize = ImGui::GetIO().DisplaySize; displaySize.x > 0.0f && displaySize.y > 0.0f) {
+        ESP::render();
+        Misc::drawReloadProgress(ImGui::GetBackgroundDrawList());
+        Misc::drawRecoilCrosshair(ImGui::GetBackgroundDrawList());
+        Misc::drawNoscopeCrosshair(ImGui::GetBackgroundDrawList());
+        Misc::purchaseList();
+        Misc::drawObserverList();
+        Misc::drawFpsCounter();
 
-    gui->render();
+        gui->render();
+    }
 
     if (ImGui::IsKeyPressed(SDL_SCANCODE_INSERT, false)) {
         gui->open = !gui->open;
@@ -256,9 +258,9 @@ void Hooks::uninstall() noexcept
 {
 #ifdef _WIN32
 
-    *reinterpret_cast<void**>(memory->reset) = reset;
-    *reinterpret_cast<void**>(memory->present) = present;
-    *reinterpret_cast<void**>(memory->setCursorPos) = setCursorPos;
+    *reinterpret_cast<decltype(reset)*>(memory->reset) = reset;
+    *reinterpret_cast<decltype(present)*>(memory->present) = present;
+    *reinterpret_cast<decltype(setCursorPos)*>(memory->setCursorPos) = setCursorPos;
 
     SetWindowLongPtrW(window, GWLP_WNDPROC, LONG_PTR(wndProc));
 
