@@ -5,6 +5,10 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui/imgui_internal.h"
 
+#ifdef _WIN32
+#include "imgui/imgui_impl_dx9.h"
+#endif
+
 #include "Config.h"
 #include "fnv.h"
 #include "GameData.h"
@@ -21,6 +25,7 @@
 #include "SDK/LocalPlayer.h"
 #include "SDK/ModelInfo.h"
 #include "SDK/Sound.h"
+#include "SDK/Steam.h"
 #include "SDK/UtlVector.h"
 #include "SDK/WeaponId.h"
 #include "SDK/WeaponInfo.h"
@@ -59,7 +64,6 @@ void GameData::update() noexcept
 
     Lock lock;
 
-    playerData.clear();
     observerData.clear();
     weaponData.clear();
     entityData.clear();
@@ -73,10 +77,8 @@ void GameData::update() noexcept
 
     viewMatrix = interfaces->engine->worldToScreenMatrix();
 
-#ifdef _WIN32
     for (int i = 0; i < memory->plantedC4s->size; ++i)
         bombData.emplace_back((*memory->plantedC4s)[i]);
-#endif
 
     const auto observerTarget = localPlayer->getObserverMode() == ObsMode::InEye ? localPlayer->getObserverTarget() : nullptr;
 
@@ -86,9 +88,13 @@ void GameData::update() noexcept
             if (entity == localPlayer.get() || entity == observerTarget)
                 continue;
 
-           playerData.emplace_back(entity);
+            if (const auto it = std::find_if(playerData.begin(), playerData.end(), [userId = entity->getUserId()](const auto& playerData) { return playerData.userId == userId; }); it != playerData.end()) {
+                it->update(entity);
+            } else {
+                playerData.emplace_back(entity);
+            }
 
-           if (!entity->isDormant() && !entity->isAlive()) {
+            if (!entity->isDormant() && !entity->isAlive()) {
                 const auto obs = entity->getObserverTarget();
                 if (obs)
                     observerData.emplace_back(entity, obs, obs == localPlayer.get());
@@ -157,6 +163,13 @@ void GameData::update() noexcept
             }
         }
         ++it;
+    }
+
+    for (auto it = playerData.begin(); it != playerData.end();) {
+        if (!interfaces->entityList->getEntityFromHandle(it->handle))
+            it = playerData.erase(it);
+        else
+            ++it;
     }
 }
 
@@ -237,7 +250,7 @@ void LocalPlayerData::update() noexcept
 BaseData::BaseData(Entity* entity) noexcept
 {
     distanceToLocal = entity->getAbsOrigin().distTo(localPlayerData.origin);
- 
+
     if (entity->isPlayer()) {
         const auto collideable = entity->getCollideable();
         obbMins = collideable->obbMins();
@@ -268,7 +281,7 @@ EntityData::EntityData(Entity* entity) noexcept : BaseData{ entity }
     }(entity->getClientClass()->classId);
 }
 
-ProjectileData::ProjectileData(Entity* projectile) noexcept : BaseData { projectile }
+ProjectileData::ProjectileData(Entity* projectile) noexcept : BaseData{ projectile }
 {
     name = [](Entity* projectile) {
         switch (projectile->getClientClass()->classId) {
@@ -308,16 +321,42 @@ void ProjectileData::update(Entity* projectile) noexcept
 
 PlayerData::PlayerData(Entity* entity) noexcept : BaseData{ entity }
 {
-    entity->getPlayerName(name);
     userId = entity->getUserId();
+    handle = entity->handle();
+
+#ifdef _WIN32
+    if (std::uint64_t steamID; entity->getSteamID(&steamID)) {
+        const auto avatar = interfaces->engine->getSteamAPIContext()->steamFriends->getSmallFriendAvatar(steamID);
+        hasAvatar = interfaces->engine->getSteamAPIContext()->steamUtils->getImageRGBA(avatar, avatarRGBA, sizeof(avatarRGBA));
+#else
+    if (false) {
+#endif
+
+    } else {
+        hasAvatar = false;
+    }
+
+    update(entity);
+}
+
+void PlayerData::update(Entity* entity) noexcept
+{
+    static_cast<BaseData&>(*this) = { entity };
+
+    if (memory->globalVars->framecount % 20 == 0)
+        entity->getPlayerName(name);
 
     dormant = entity->isDormant();
     if (dormant)
         return;
 
+    origin = entity->getAbsOrigin();
+    inViewFrustum = !interfaces->engine->cullBox(obbMins + origin, obbMaxs + origin);
+    alive = entity->isAlive();
+
     if (localPlayer) {
         enemy = entity->isEnemy();
-        visible = entity->visibleTo(localPlayer.get());
+        visible = inViewFrustum && alive && entity->visibleTo(localPlayer.get());
     }
 
     constexpr auto isEntityAudible = [](int entityIndex) noexcept {
@@ -330,15 +369,17 @@ PlayerData::PlayerData(Entity* entity) noexcept : BaseData{ entity }
     audible = isEntityAudible(entity->index());
     spotted = entity->spotted();
     immune = entity->gunGameImmunity();
-    alive = entity->isAlive();
-    health = entity->getHealth();
     flashDuration = entity->flashDuration();
+    health = entity->getHealth();
 
     if (const auto weapon = entity->getActiveWeapon()) {
         audible = audible || isEntityAudible(weapon->index());
         if (const auto weaponInfo = weapon->getWeaponInfo())
             activeWeapon = interfaces->localize->findAsUTF8(weaponInfo->name);
     }
+
+    if (!inViewFrustum)
+        return;
 
     const auto model = entity->getModel();
     if (!model)
@@ -351,6 +392,9 @@ PlayerData::PlayerData(Entity* entity) noexcept : BaseData{ entity }
     Matrix3x4 boneMatrices[MAXSTUDIOBONES];
     if (!entity->setupBones(boneMatrices, MAXSTUDIOBONES, BONE_USED_BY_HITBOX, memory->globalVars->currenttime))
         return;
+
+    bones.clear();
+    bones.reserve(20);
 
     for (int i = 0; i < studioModel->numBones; ++i) {
         const auto bone = studioModel->getBone(i);
@@ -382,6 +426,19 @@ PlayerData::PlayerData(Entity* entity) noexcept : BaseData{ entity }
         headMins -= headBox->capsuleRadius;
         headMaxs += headBox->capsuleRadius;
     }
+}
+
+ImTextureID PlayerData::getAvatarTexture() const noexcept
+{
+    assert(hasAvatar);
+
+    if (avatarTexture)
+        return avatarTexture;
+
+#ifdef _WIN32
+    avatarTexture = ImGui_ImplDX9_CreateTextureRGBA(32, 32, avatarRGBA);
+#endif
+    return avatarTexture;
 }
 
 WeaponData::WeaponData(Entity* entity) noexcept : BaseData{ entity }
@@ -505,8 +562,8 @@ LootCrateData::LootCrateData(Entity* entity) noexcept : BaseData{ entity }
 
 ObserverData::ObserverData(Entity* entity, Entity* obs, bool targetIsLocalPlayer) noexcept
 {
-    entity->getPlayerName(name);
-    obs->getPlayerName(target);
+    playerUserId = entity->getUserId();
+    targetUserId = obs->getUserId();
     this->targetIsLocalPlayer = targetIsLocalPlayer;
 }
 

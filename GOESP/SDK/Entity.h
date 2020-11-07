@@ -72,6 +72,7 @@ public:
     VIRTUAL_METHOD(bool, isPlayer, 157, (), (this))
     VIRTUAL_METHOD(bool, isWeapon, 165, (), (this))
     VIRTUAL_METHOD(Entity*, getActiveWeapon, 267, (), (this))
+    VIRTUAL_METHOD(bool, getSteamID, 272, (std::uint64_t* id), (this, id))
     VIRTUAL_METHOD(Vector, getEyePosition, 284, (), (this))
     VIRTUAL_METHOD(ObsMode, getObserverMode, 293, (), (this))
     VIRTUAL_METHOD(Entity*, getObserverTarget, 294, (), (this))
@@ -103,10 +104,8 @@ public:
     bool visibleTo(Entity* other) noexcept;
     [[nodiscard]] std::string getPlayerName() noexcept;
     void getPlayerName(char(&out)[128]) noexcept;
-    std::uint64_t getSteamId() noexcept;
     int getUserId() noexcept;
     bool isEnemy() noexcept;
-    bool isVisible(const Vector& mins, const Vector& maxs) noexcept;
 
 #ifdef _WIN32
     PROP(hitboxSet, 0x9FC, int)                                                    // CBaseAnimating->m_nHitboxSet

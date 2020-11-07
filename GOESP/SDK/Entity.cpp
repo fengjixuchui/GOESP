@@ -26,6 +26,8 @@ bool Entity::canSee(Entity* other, const Vector& pos) noexcept
 
 bool Entity::visibleTo(Entity* other) noexcept
 {
+    assert(isAlive());
+
     if (other->canSee(this, getAbsOrigin() + Vector{ 0.0f, 0.0f, 5.0f }))
         return true;
 
@@ -82,13 +84,6 @@ void Entity::getPlayerName(char(&out)[128]) noexcept
     interfaces->localize->convertUnicodeToAnsi(wide, out, 128);
 }
 
-std::uint64_t Entity::getSteamId() noexcept
-{
-    if (PlayerInfo playerInfo; interfaces->engine->getPlayerInfo(index(), playerInfo))
-        return playerInfo.xuid;
-    return -1;
-}
-
 int Entity::getUserId() noexcept
 {
     if (PlayerInfo playerInfo; interfaces->engine->getPlayerInfo(index(), playerInfo))
@@ -108,16 +103,4 @@ bool Entity::isEnemy() noexcept
         return getTeamNumber() != Team::CT;
     }
     return memory->isOtherEnemy(this, localPlayer.get());
-}
-
-bool Entity::isVisible(const Vector& mins, const Vector& maxs) noexcept
-{
-    if (!localPlayer) {
-        assert(false);
-        return false;
-    }
-
-    if (const auto& origin = getAbsOrigin(); interfaces->engine->cullBox((mins * 1.5f) + origin, (maxs * 1.5f) + origin))
-        return false;
-    return visibleTo(localPlayer.get());
 }

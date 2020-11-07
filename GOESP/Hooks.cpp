@@ -62,12 +62,7 @@ static HRESULT D3DAPI present(IDirect3DDevice9* device, const RECT* src, const R
     ImGui::NewFrame();
 
     ESP::render();
-    Misc::drawReloadProgress(ImGui::GetBackgroundDrawList());
-    Misc::drawRecoilCrosshair(ImGui::GetBackgroundDrawList());
-    Misc::drawNoscopeCrosshair(ImGui::GetBackgroundDrawList());
-    Misc::purchaseList();
-    Misc::drawObserverList();
-    Misc::drawFpsCounter();
+    Misc::draw(ImGui::GetBackgroundDrawList());
 
     gui->render();
 
@@ -144,13 +139,7 @@ static void swapWindow(SDL_Window* window) noexcept
 
     if (const auto& displaySize = ImGui::GetIO().DisplaySize; displaySize.x > 0.0f && displaySize.y > 0.0f) {
         ESP::render();
-        Misc::drawReloadProgress(ImGui::GetBackgroundDrawList());
-        Misc::drawRecoilCrosshair(ImGui::GetBackgroundDrawList());
-        Misc::drawNoscopeCrosshair(ImGui::GetBackgroundDrawList());
-        Misc::purchaseList();
-        Misc::drawObserverList();
-        Misc::drawFpsCounter();
-
+        Misc::draw(ImGui::GetBackgroundDrawList());
         gui->render();
     }
 
@@ -180,6 +169,12 @@ static void warpMouseInWindow(SDL_Window* window, int x, int y) noexcept
     	hooks->warpMouseInWindow(window, x, y);
 }
 
+#elif __APPLE__
+Hooks::Hooks() noexcept
+{
+    interfaces = std::make_unique<const Interfaces>();
+    memory = std::make_unique<const Memory>();
+}
 #endif
 
 void Hooks::setup() noexcept

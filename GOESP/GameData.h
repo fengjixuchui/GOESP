@@ -77,7 +77,7 @@ struct BaseData {
 
 struct EntityData final : BaseData {
     EntityData(Entity* entity) noexcept;
-   
+
     const char* name;
 };
 
@@ -100,6 +100,8 @@ struct ProjectileData : BaseData {
 
 struct PlayerData : BaseData {
     PlayerData(Entity* entity) noexcept;
+    void update(Entity* entity) noexcept;
+    ImTextureID getAvatarTexture() const noexcept;
 
     bool enemy = false;
     bool visible = false;
@@ -108,13 +110,20 @@ struct PlayerData : BaseData {
     bool immune;
     bool dormant;
     bool alive;
+    bool inViewFrustum;
+    bool hasAvatar;
     float flashDuration;
     int health;
     int userId;
+    int handle;
     char name[128];
     std::string activeWeapon;
+    Vector origin;
     std::vector<std::pair<ImVec2, ImVec2>> bones;
     Vector headMins, headMaxs;
+private:
+    mutable ImTextureID avatarTexture = nullptr;
+    std::uint8_t avatarRGBA[4 * 32 * 32 * sizeof(char)];
 };
 
 struct WeaponData : BaseData {
@@ -136,8 +145,8 @@ struct LootCrateData : BaseData {
 struct ObserverData {
     ObserverData(Entity* entity, Entity* obs, bool targetIsLocalPlayer) noexcept;
 
-    char name[128];
-    char target[128];
+    int playerUserId;
+    int targetUserId;
     bool targetIsLocalPlayer;
 };
 

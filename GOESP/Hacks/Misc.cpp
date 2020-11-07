@@ -129,7 +129,11 @@ void Misc::purchaseList(GameEvent* event) noexcept
 
             const auto weaponName = event->getString("weapon");
 
+#ifdef __APPLE__
+            if (const auto definition = (*memory->itemSystem)->getItemSchema()->getItemDefinitionByName(weaponName)) {
+#else
             if (const auto definition = memory->itemSystem()->getItemSchema()->getItemDefinitionByName(weaponName)) {
+#endif
                 if (const auto weaponInfo = memory->weaponSystem->getWeaponInfo(definition->getWeaponId())) {
                     auto& purchase = playerPurchases[player->getUserId()];
 
@@ -263,7 +267,9 @@ void Misc::drawObserverList() noexcept
         if (!observer.targetIsLocalPlayer)
             continue;
 
-        ImGui::TextWrapped("%s", observer.name);
+        if (const auto it = std::find_if(GameData::players().cbegin(), GameData::players().cend(), [userId = observer.playerUserId](const auto& playerData) { return playerData.userId == userId; }); it != GameData::players().cend()) {
+            ImGui::TextWrapped("%s", it->name);
+        }
     }
 
     ImGui::End();
@@ -304,4 +310,65 @@ void Misc::drawFpsCounter() noexcept
         ImGui::Text("%d fps", static_cast<int>(1 / frameRate));
 
     ImGui::End();
+}
+
+void Misc::drawOffscreenEnemies(ImDrawList* drawList) noexcept
+{
+    if (!config->offscreenEnemies.enabled)
+        return;
+
+    GameData::Lock lock;
+
+    const auto yaw = Helpers::deg2rad(interfaces->engine->getViewAngles().y);
+
+    for (auto& player : GameData::players()) {
+        if (player.dormant || !player.alive || !player.enemy || player.inViewFrustum)
+            continue;
+
+        const auto positionDiff = GameData::local().origin - player.origin;
+
+        auto x = std::cos(yaw) * positionDiff.y - std::sin(yaw) * positionDiff.x;
+        auto y = std::cos(yaw) * positionDiff.x + std::sin(yaw) * positionDiff.y;
+        const auto len = std::sqrt(x * x + y * y);
+        x /= len;
+        y /= len;
+
+        const auto pos = ImGui::GetIO().DisplaySize / 2 + ImVec2{ x, y } * 200;
+        const auto color = Helpers::calculateColor(config->offscreenEnemies.color);
+
+        drawList->AddCircleFilled(pos, 11.0f, color & IM_COL32_A_MASK, 40);
+
+#ifdef _WIN32
+        if (player.hasAvatar) {
+#else
+        if (false) {
+#endif
+            const auto texture = player.getAvatarTexture();
+
+            const bool pushTextureId = drawList->_TextureIdStack.empty() || texture != drawList->_TextureIdStack.back();
+            if (pushTextureId)
+                drawList->PushTextureID(texture);
+
+            const int vertStartIdx = drawList->VtxBuffer.Size;
+            drawList->AddCircleFilled(pos, 10.0f, IM_COL32_WHITE, 40);
+            const int vertEndIdx = drawList->VtxBuffer.Size;
+            ImGui::ShadeVertsLinearUV(drawList, vertStartIdx, vertEndIdx, pos - ImVec2{ 10, 10 }, pos + ImVec2{ 10, 10 }, { 0, 0 }, { 1, 1 }, true);
+
+            if (pushTextureId)
+                drawList->PopTextureID();
+        } else {
+            drawList->AddCircleFilled(pos, 10.0f, color, 40);
+        }
+    }
+}
+
+void Misc::draw(ImDrawList* drawList) noexcept
+{
+    drawReloadProgress(drawList);
+    drawRecoilCrosshair(drawList);
+    purchaseList();
+    drawObserverList();
+    drawNoscopeCrosshair(drawList);
+    drawFpsCounter();
+    drawOffscreenEnemies(drawList);
 }
