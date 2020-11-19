@@ -1,6 +1,5 @@
 #include "imgui/imgui.h"
 
-#include "Config.h"
 #include "EventListener.h"
 #include "GameData.h"
 #include "GUI.h"
@@ -46,6 +45,7 @@ static LRESULT WINAPI wndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lPara
 
 static HRESULT D3DAPI reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params) noexcept
 {
+    GameData::clearTextures();
     ImGui_ImplDX9_InvalidateDeviceObjects();
     return hooks->reset(device, params);
 }
@@ -54,8 +54,8 @@ static HRESULT D3DAPI present(IDirect3DDevice9* device, const RECT* src, const R
 {
     [[maybe_unused]] static const auto _ = ImGui_ImplDX9_Init(device);
 
-    if (config->loadScheduledFonts())
-        ImGui_ImplDX9_InvalidateDeviceObjects();
+    if (ESP::loadScheduledFonts())
+        ImGui_ImplDX9_DestroyFontsTexture();
 
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -96,9 +96,9 @@ static BOOL WINAPI setCursorPos(int X, int Y) noexcept
     return hooks->setCursorPos(X, Y);
 }
 
-Hooks::Hooks(HMODULE module) noexcept
+Hooks::Hooks(HMODULE moduleHandle) noexcept
 {
-    this->module = module;
+    this->moduleHandle = moduleHandle;
 
     _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
     _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
@@ -128,7 +128,7 @@ static void swapWindow(SDL_Window* window) noexcept
 {
     static const auto _ = ImGui_ImplSDL2_InitForOpenGL(window, nullptr);
 
-    if (config->loadScheduledFonts()) {
+    if (ESP::loadScheduledFonts()) {
         ImGui_ImplOpenGL3_DestroyDeviceObjects();
     }
 
@@ -197,7 +197,6 @@ void Hooks::install() noexcept
 #endif
 
     eventListener = std::make_unique<EventListener>();
-    config = std::make_unique<Config>("GOESP");
 
     ImGui::CreateContext();
 #ifdef _WIN32
@@ -230,7 +229,7 @@ void Hooks::install() noexcept
 
 #ifdef _WIN32
 
-extern "C" BOOL WINAPI _CRT_INIT(HMODULE module, DWORD reason, LPVOID reserved);
+extern "C" BOOL WINAPI _CRT_INIT(HMODULE moduleHandle, DWORD reason, LPVOID reserved);
 
 static DWORD WINAPI waitOnUnload(HMODULE hModule) noexcept
 {
@@ -259,7 +258,7 @@ void Hooks::uninstall() noexcept
 
     SetWindowLongPtrW(window, GWLP_WNDPROC, LONG_PTR(wndProc));
 
-    if (HANDLE thread = CreateThread(nullptr, 0, LPTHREAD_START_ROUTINE(waitOnUnload), module, 0, nullptr))
+    if (HANDLE thread = CreateThread(nullptr, 0, LPTHREAD_START_ROUTINE(waitOnUnload), moduleHandle, 0, nullptr))
         CloseHandle(thread);
 
 #elif __linux__

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "imgui.h"
+
 struct IDirect3DDevice9;
 struct IDirect3DTexture9;
 
@@ -19,8 +21,11 @@ IMGUI_IMPL_API void     ImGui_ImplDX9_Shutdown();
 IMGUI_IMPL_API void     ImGui_ImplDX9_NewFrame();
 IMGUI_IMPL_API void     ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data);
 
+IMGUI_IMPL_API void     ImGui_ImplDX9_DestroyFontsTexture();
+
 // Use if you want to reset your rendering device without losing ImGui state.
 IMGUI_IMPL_API bool     ImGui_ImplDX9_CreateDeviceObjects();
 IMGUI_IMPL_API void     ImGui_ImplDX9_InvalidateDeviceObjects();
 
-IMGUI_IMPL_API IDirect3DTexture9* ImGui_ImplDX9_CreateTextureRGBA(int width, int height, const unsigned char* data);
+IMGUI_IMPL_API ImTextureID    ImGui_CreateTextureRGBA(int width, int height, const unsigned char* data);
+IMGUI_IMPL_API void           ImGui_DestroyTexture(ImTextureID texture);

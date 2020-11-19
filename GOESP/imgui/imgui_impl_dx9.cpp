@@ -187,6 +187,11 @@ void ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data)
     d3d9_state_block->Release();
 }
 
+void ImGui_ImplDX9_DestroyFontsTexture()
+{
+    if (g_FontTexture) { g_FontTexture->Release(); g_FontTexture = NULL; ImGui::GetIO().Fonts->TexID = NULL; } // We copied g_pFontTextureView to io.Fonts->TexID so let's clear that as well.
+}
+
 bool ImGui_ImplDX9_Init(IDirect3DDevice9* device)
 {
     // Setup back-end capabilities flags
@@ -255,11 +260,17 @@ void ImGui_ImplDX9_InvalidateDeviceObjects()
         return;
     if (g_pVB) { g_pVB->Release(); g_pVB = NULL; }
     if (g_pIB) { g_pIB->Release(); g_pIB = NULL; }
-    if (g_FontTexture) { g_FontTexture->Release(); g_FontTexture = NULL; ImGui::GetIO().Fonts->TexID = NULL; } // We copied g_pFontTextureView to io.Fonts->TexID so let's clear that as well.
+    ImGui_ImplDX9_DestroyFontsTexture();
     if (vertexDeclaration) { vertexDeclaration->Release(); vertexDeclaration = nullptr; }
 }
 
-IDirect3DTexture9* ImGui_ImplDX9_CreateTextureRGBA(int width, int height, const unsigned char* data)
+void ImGui_ImplDX9_NewFrame()
+{
+    if (!g_FontTexture)
+        ImGui_ImplDX9_CreateDeviceObjects();
+}
+
+ImTextureID ImGui_CreateTextureRGBA(int width, int height, const unsigned char* data)
 {
     IDirect3DTexture9* texture;
     if (g_pd3dDevice->CreateTexture(width, height, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &texture, nullptr) != D3D_OK)
@@ -283,8 +294,7 @@ IDirect3DTexture9* ImGui_ImplDX9_CreateTextureRGBA(int width, int height, const 
     return texture;
 }
 
-void ImGui_ImplDX9_NewFrame()
+void ImGui_DestroyTexture(ImTextureID texture)
 {
-    if (!g_FontTexture)
-        ImGui_ImplDX9_CreateDeviceObjects();
+    reinterpret_cast<IDirect3DTexture9*>(texture)->Release();
 }

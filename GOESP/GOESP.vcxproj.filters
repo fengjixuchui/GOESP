@@ -21,6 +21,9 @@
     <Filter Include="Hacks">
       <UniqueIdentifier>{4498ebc5-607e-4528-acbf-cd79761d7f62}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Resources">
+      <UniqueIdentifier>{86a27e42-a2f4-4308-bf2c-0d66a56f5845}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -48,9 +51,6 @@
       <Filter>imgui</Filter>
     </ClCompile>
     <ClCompile Include="GUI.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Config.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ImGuiCustom.cpp">
@@ -117,9 +117,6 @@
     </ClInclude>
     <ClInclude Include="SDK\InputSystem.h">
       <Filter>SDK</Filter>
-    </ClInclude>
-    <ClInclude Include="Config.h">
-      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ImGuiCustom.h">
       <Filter>Header Files</Filter>
@@ -228,6 +225,15 @@
     </ClInclude>
     <ClInclude Include="SDK\Steam.h">
       <Filter>SDK</Filter>
+    </ClInclude>
+    <ClInclude Include="stb_image.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Resources\avatar_ct.h">
+      <Filter>Resources</Filter>
+    </ClInclude>
+    <ClInclude Include="Resources\avatar_tt.h">
+      <Filter>Resources</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <list>
 #include <mutex>
 
@@ -7,9 +8,18 @@
 
 #ifdef _WIN32
 #include "imgui/imgui_impl_dx9.h"
+#else
+#include "imgui/imgui_impl_opengl3.h"
 #endif
 
-#include "Config.h"
+#define STBI_ONLY_PNG
+#define STBI_NO_STDIO
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#include "Resources/avatar_ct.h"
+#include "Resources/avatar_tt.h"
+
 #include "fnv.h"
 #include "GameData.h"
 #include "Interfaces.h"
@@ -40,20 +50,6 @@ static std::vector<LootCrateData> lootCrateData;
 static std::list<ProjectileData> projectileData;
 static std::vector<BombData> bombData;
 
-static bool worldToScreen(const Vector& in, ImVec2& out) noexcept
-{
-    const auto& matrix = viewMatrix;
-
-    const auto w = matrix._41 * in.x + matrix._42 * in.y + matrix._43 * in.z + matrix._44;
-    if (w < 0.001f)
-        return false;
-
-    out = ImGui::GetIO().DisplaySize / 2.0f;
-    out.x *= 1.0f + (matrix._11 * in.x + matrix._12 * in.y + matrix._13 * in.z + matrix._14) / w;
-    out.y *= 1.0f - (matrix._21 * in.x + matrix._22 * in.y + matrix._23 * in.z + matrix._24) / w;
-    return true;
-}
-
 void GameData::update() noexcept
 {
     static int lastFrame;
@@ -63,7 +59,6 @@ void GameData::update() noexcept
     lastFrame = memory->globalVars->framecount;
 
     Lock lock;
-
     observerData.clear();
     weaponData.clear();
     entityData.clear();
@@ -72,8 +67,11 @@ void GameData::update() noexcept
 
     localPlayerData.update();
 
-    if (!localPlayer)
+    if (!localPlayer) {
+        playerData.clear();
+        projectileData.clear();
         return;
+    }
 
     viewMatrix = interfaces->engine->worldToScreenMatrix();
 
@@ -88,7 +86,7 @@ void GameData::update() noexcept
             if (entity == localPlayer.get() || entity == observerTarget)
                 continue;
 
-            if (const auto it = std::find_if(playerData.begin(), playerData.end(), [userId = entity->getUserId()](const auto& playerData) { return playerData.userId == userId; }); it != playerData.end()) {
+            if (const auto it = std::find_if(playerData.begin(), playerData.end(), [handle = entity->handle()](const auto& playerData) { return playerData.handle == handle; }); it != playerData.end()) {
                 it->update(entity);
             } else {
                 playerData.emplace_back(entity);
@@ -166,10 +164,15 @@ void GameData::update() noexcept
     }
 
     for (auto it = playerData.begin(); it != playerData.end();) {
-        if (!interfaces->entityList->getEntityFromHandle(it->handle))
-            it = playerData.erase(it);
-        else
-            ++it;
+        if (!interfaces->entityList->getEntityFromHandle(it->handle)) {
+            if (it->fadingEndTime == 0.0f) {
+                it->fadingEndTime = memory->globalVars->realtime + 1.75f;
+            } else if (it->fadingEndTime < memory->globalVars->realtime) {
+                it = playerData.erase(it);
+                continue;
+            }
+        }
+        ++it;
     }
 }
 
@@ -177,6 +180,13 @@ void GameData::clearProjectileList() noexcept
 {
     Lock lock;
     projectileData.clear();
+}
+
+void GameData::clearTextures() noexcept
+{
+    Lock lock;
+    for (auto& player : playerData)
+        player.clearAvatarTexture();
 }
 
 const Matrix4x4& GameData::toScreenMatrix() noexcept
@@ -324,32 +334,45 @@ PlayerData::PlayerData(Entity* entity) noexcept : BaseData{ entity }
     userId = entity->getUserId();
     handle = entity->handle();
 
-#ifdef _WIN32
+    bool hasAvatar = false;
     if (std::uint64_t steamID; entity->getSteamID(&steamID)) {
-        const auto avatar = interfaces->engine->getSteamAPIContext()->steamFriends->getSmallFriendAvatar(steamID);
-        hasAvatar = interfaces->engine->getSteamAPIContext()->steamUtils->getImageRGBA(avatar, avatarRGBA, sizeof(avatarRGBA));
-#else
-    if (false) {
-#endif
-
-    } else {
-        hasAvatar = false;
+        const auto ctx = interfaces->engine->getSteamAPIContext();
+        const auto avatar = ctx->steamFriends->getSmallFriendAvatar(steamID);
+        hasAvatar = ctx->steamUtils->getImageRGBA(avatar, avatarRGBA, sizeof(avatarRGBA));
     }
 
+    if (!hasAvatar) {
+        const auto team = entity->getTeamNumber();
+        const auto imageData = team == Team::TT ? avatar_tt.data() : avatar_ct.data();
+        const auto imageDataLen = team == Team::TT ? avatar_tt.size() : avatar_ct.size();
+
+        int width, height;
+        stbi_set_flip_vertically_on_load_thread(false);
+        if (auto data = stbi_load_from_memory((const stbi_uc*)imageData, imageDataLen, &width, &height, nullptr, STBI_rgb_alpha)) {
+            assert(width == 32 && height == 32);
+            memcpy(avatarRGBA, data, sizeof(avatarRGBA));
+            stbi_image_free(data);
+        }
+    }
+
+    name[0] = '\0';
     update(entity);
 }
 
 void PlayerData::update(Entity* entity) noexcept
 {
-    static_cast<BaseData&>(*this) = { entity };
-
     if (memory->globalVars->framecount % 20 == 0)
         entity->getPlayerName(name);
 
     dormant = entity->isDormant();
-    if (dormant)
+    if (dormant) {
+        if (fadingEndTime == 0.0f)
+            fadingEndTime = memory->globalVars->realtime + 1.75f;
         return;
+    }
 
+    fadingEndTime = 0.0f;
+    static_cast<BaseData&>(*this) = { entity };
     origin = entity->getAbsOrigin();
     inViewFrustum = !interfaces->engine->cullBox(obbMins + origin, obbMaxs + origin);
     alive = entity->isAlive();
@@ -378,7 +401,7 @@ void PlayerData::update(Entity* entity) noexcept
             activeWeapon = interfaces->localize->findAsUTF8(weaponInfo->name);
     }
 
-    if (!inViewFrustum)
+    if (!alive || !inViewFrustum)
         return;
 
     const auto model = entity->getModel();
@@ -402,15 +425,7 @@ void PlayerData::update(Entity* entity) noexcept
         if (!bone || bone->parent == -1 || !(bone->flags & BONE_USED_BY_HITBOX))
             continue;
 
-        ImVec2 bonePoint;
-        if (!worldToScreen(boneMatrices[i].origin(), bonePoint))
-            continue;
-
-        ImVec2 parentPoint;
-        if (!worldToScreen(boneMatrices[bone->parent].origin(), parentPoint))
-            continue;
-
-        bones.emplace_back(bonePoint, parentPoint);
+        bones.emplace_back(boneMatrices[i].origin(), boneMatrices[bone->parent].origin());
     }
 
     const auto set = studioModel->getHitboxSet(entity->hitboxSet());
@@ -430,15 +445,10 @@ void PlayerData::update(Entity* entity) noexcept
 
 ImTextureID PlayerData::getAvatarTexture() const noexcept
 {
-    assert(hasAvatar);
+    if (!avatarTexture.get())
+        avatarTexture.init(32, 32, avatarRGBA);
 
-    if (avatarTexture)
-        return avatarTexture;
-
-#ifdef _WIN32
-    avatarTexture = ImGui_ImplDX9_CreateTextureRGBA(32, 32, avatarRGBA);
-#endif
-    return avatarTexture;
+    return avatarTexture.get();
 }
 
 WeaponData::WeaponData(Entity* entity) noexcept : BaseData{ entity }
@@ -570,4 +580,21 @@ ObserverData::ObserverData(Entity* entity, Entity* obs, bool targetIsLocalPlayer
 BombData::BombData(Entity* entity) noexcept
 {
 
+}
+
+PlayerData::Texture::~Texture()
+{
+    clear();
+}
+
+void PlayerData::Texture::init(int width, int height, const std::uint8_t* data) noexcept
+{
+    texture = ImGui_CreateTextureRGBA(width, height, data);
+}
+
+void PlayerData::Texture::clear() noexcept
+{
+    if (texture)
+        ImGui_DestroyTexture(texture);
+    texture = nullptr;
 }

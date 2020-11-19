@@ -25,6 +25,7 @@ namespace GameData
 {
     void update() noexcept;
     void clearProjectileList() noexcept;
+    void clearTextures() noexcept;
 
     class Lock {
     public:
@@ -100,18 +101,24 @@ struct ProjectileData : BaseData {
 
 struct PlayerData : BaseData {
     PlayerData(Entity* entity) noexcept;
+    PlayerData(const PlayerData&) = delete;
+    PlayerData& operator=(const PlayerData&) = delete;
+    PlayerData(PlayerData&& other) = default;
+    PlayerData& operator=(PlayerData&& other) = default;
+
     void update(Entity* entity) noexcept;
     ImTextureID getAvatarTexture() const noexcept;
+    void clearAvatarTexture() noexcept { avatarTexture = {}; }
 
+    bool dormant;
+    bool alive;
+    bool inViewFrustum;
     bool enemy = false;
     bool visible = false;
     bool audible;
     bool spotted;
     bool immune;
-    bool dormant;
-    bool alive;
-    bool inViewFrustum;
-    bool hasAvatar;
+    float fadingEndTime = 0.0f;
     float flashDuration;
     int health;
     int userId;
@@ -119,10 +126,24 @@ struct PlayerData : BaseData {
     char name[128];
     std::string activeWeapon;
     Vector origin;
-    std::vector<std::pair<ImVec2, ImVec2>> bones;
+    std::vector<std::pair<Vector, Vector>> bones;
     Vector headMins, headMaxs;
 private:
-    mutable ImTextureID avatarTexture = nullptr;
+    class Texture {
+        ImTextureID texture = nullptr;
+    public:
+        Texture() = default;
+        ~Texture();
+        Texture(const Texture&) = delete;
+        Texture& operator=(const Texture&) = delete;
+        Texture(Texture&& other) noexcept : texture{ other.texture } { other.texture = nullptr; }
+        Texture& operator=(Texture&& other) noexcept { clear(); texture = other.texture; other.texture = nullptr; return *this; }
+
+        void init(int width, int height, const std::uint8_t* data) noexcept;
+        void clear() noexcept;
+        ImTextureID get() noexcept { return texture; }
+    };
+    mutable Texture avatarTexture;
     std::uint8_t avatarRGBA[4 * 32 * 32 * sizeof(char)];
 };
 
