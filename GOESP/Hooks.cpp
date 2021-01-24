@@ -37,7 +37,7 @@ static LRESULT WINAPI wndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lPara
 
         LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
         ImGui_ImplWin32_WndProcHandler(window, msg, wParam, lParam);
-        interfaces->inputSystem->enableInput(!gui->open);
+        interfaces->inputSystem->enableInput(!gui->isOpen());
     }
 
     return CallWindowProcW(hooks->wndProc, window, msg, wParam, lParam);
@@ -65,13 +65,7 @@ static HRESULT D3DAPI present(IDirect3DDevice9* device, const RECT* src, const R
     Misc::draw(ImGui::GetBackgroundDrawList());
 
     gui->render();
-
-    if (ImGui::IsKeyPressed(VK_INSERT, false)) {
-        gui->open = !gui->open;
-        if (!gui->open)
-            interfaces->inputSystem->resetInputState();
-    }
-    ImGui::GetIO().MouseDrawCursor = gui->open;
+    gui->handleToggle();
 
     ImGui::EndFrame();
     ImGui::Render();
@@ -86,7 +80,7 @@ static HRESULT D3DAPI present(IDirect3DDevice9* device, const RECT* src, const R
 
 static BOOL WINAPI setCursorPos(int X, int Y) noexcept
 {
-    if (gui->open) {
+    if (gui->isOpen()) {
         POINT p;
         GetCursorPos(&p);
         X = p.x;
@@ -117,7 +111,7 @@ static int pollEvent(SDL_Event* event) noexcept
 
     if (hooks->getState() == Hooks::State::Installed) {
         GameData::update();
-        if (result && ImGui_ImplSDL2_ProcessEvent(event) && gui->open)
+        if (result && ImGui_ImplSDL2_ProcessEvent(event) && gui->isOpen())
             event->type = 0;
     }
 
@@ -141,14 +135,8 @@ static void swapWindow(SDL_Window* window) noexcept
         ESP::render();
         Misc::draw(ImGui::GetBackgroundDrawList());
         gui->render();
+        gui->handleToggle();
     }
-
-    if (ImGui::IsKeyPressed(SDL_SCANCODE_INSERT, false)) {
-        gui->open = !gui->open;
-        if (!gui->open)
-            interfaces->inputSystem->resetInputState();
-    }
-    ImGui::GetIO().MouseDrawCursor = gui->open;
 
     ImGui::EndFrame();
     ImGui::Render();
@@ -165,7 +153,7 @@ Hooks::Hooks() noexcept
 
 static void warpMouseInWindow(SDL_Window* window, int x, int y) noexcept
 {
-    if (!gui->open)
+    if (!gui->isOpen())
     	hooks->warpMouseInWindow(window, x, y);
 }
 
@@ -220,8 +208,10 @@ void Hooks::install() noexcept
     swapWindow = *reinterpret_cast<decltype(swapWindow)*>(memory->swapWindow);
     *reinterpret_cast<decltype(::swapWindow)**>(memory->swapWindow) = ::swapWindow;
 
+    /*
     warpMouseInWindow = *reinterpret_cast<decltype(warpMouseInWindow)*>(memory->warpMouseInWindow);
     *reinterpret_cast<decltype(::warpMouseInWindow)**>(memory->warpMouseInWindow) = ::warpMouseInWindow;
+    */
 #endif
 
     state = State::Installed;
@@ -265,7 +255,7 @@ void Hooks::uninstall() noexcept
 
     *reinterpret_cast<decltype(pollEvent)*>(memory->pollEvent) = pollEvent;
     *reinterpret_cast<decltype(swapWindow)*>(memory->swapWindow) = swapWindow;
-    *reinterpret_cast<decltype(warpMouseInWindow)*>(memory->warpMouseInWindow) = warpMouseInWindow;
+    // *reinterpret_cast<decltype(warpMouseInWindow)*>(memory->warpMouseInWindow) = warpMouseInWindow;
 
 #endif
 }

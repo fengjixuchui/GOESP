@@ -1,11 +1,16 @@
 #include <cassert>
+#include <cstring>
 
 #ifdef _WIN32
 #include <Windows.h>
 #include <Psapi.h>
 #elif __linux__
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <link.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #elif __APPLE__
 #include <mach-o/dyld.h>
 #endif
@@ -39,13 +44,38 @@ static std::pair<void*, std::size_t> getModuleInformation(const char* name) noex
 
     dl_iterate_phdr([](struct dl_phdr_info* info, std::size_t, void* data) {
         const auto moduleInfo = reinterpret_cast<ModuleInfo*>(data);
-        if (std::string_view{ info->dlpi_name }.ends_with(moduleInfo->name)) {
-            moduleInfo->base = (void*)(info->dlpi_addr + info->dlpi_phdr[0].p_vaddr);
-            moduleInfo->size = info->dlpi_phdr[0].p_memsz;
-            return 1;
+        if (!std::string_view{ info->dlpi_name }.ends_with(moduleInfo->name))
+            return 0;
+
+        if (const auto fd = open(info->dlpi_name, O_RDONLY); fd >= 0) {
+            if (struct stat st; fstat(fd, &st) == 0) {
+                if (const auto map = mmap(nullptr, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0); map != MAP_FAILED) {
+                    const auto ehdr = (ElfW(Ehdr)*)map;
+                    const auto shdrs = (ElfW(Shdr)*)(std::uintptr_t(ehdr) + ehdr->e_shoff);
+                    const auto strTab = (const char*)(std::uintptr_t(ehdr) + shdrs[ehdr->e_shstrndx].sh_offset);
+
+                    for (auto i = 0; i < ehdr->e_shnum; ++i) {
+                        const auto shdr = (ElfW(Shdr)*)(std::uintptr_t(shdrs) + i * ehdr->e_shentsize);
+
+                        if (std::strcmp(strTab + shdr->sh_name, ".text") != 0)
+                            continue;
+
+                        moduleInfo->base = (void*)(info->dlpi_addr + shdr->sh_offset);
+                        moduleInfo->size = shdr->sh_size;
+                        munmap(map, st.st_size);
+                        close(fd);
+                        return 1;
+                    }
+                    munmap(map, st.st_size);
+                }
+            }
+            close(fd);
         }
-        return 0;
-        }, &moduleInfo);
+
+        moduleInfo->base = (void*)(info->dlpi_addr + info->dlpi_phdr[0].p_vaddr);
+        moduleInfo->size = info->dlpi_phdr[0].p_memsz;
+        return 1;
+    }, &moduleInfo);
 
     return std::make_pair(moduleInfo.base, moduleInfo.size);
 #elif __APPLE__
@@ -105,9 +135,9 @@ Memory::Memory() noexcept
     if (overlay == Overlay::Discord) {
         if (!GetModuleHandleA("discordhook"))
             goto steamOverlay;
-        reset = *reinterpret_cast<std::uintptr_t*>(findPattern("discordhook", "\x75\x09\x39\x7E\x08") + 27);
-        present = *reinterpret_cast<std::uintptr_t*>(findPattern("discordhook", "\x4E\x10\x8B\x45\xFC\x68") + 6);
-        setCursorPos = *reinterpret_cast<std::uintptr_t*>(findPattern("discordhook", "\x74\x1B\x8B\x4D\x08") + 32);
+        present = *reinterpret_cast<std::uintptr_t*>(findPattern("discordhook", "\x83\xC4\x0C\xFF\x75\x18") + 14);
+        reset = present + 60;
+        setCursorPos = *reinterpret_cast<std::uintptr_t*>(findPattern("discordhook", "\xC2\x08?\x5D") + 6);
     } else {
     steamOverlay:
         reset = *reinterpret_cast<std::uintptr_t*>(findPattern("gameoverlayrenderer", "\x53\x57\xC7\x45") + 11);
@@ -127,14 +157,14 @@ Memory::Memory() noexcept
     lineGoesThroughSmoke = relativeToAbsolute<decltype(lineGoesThroughSmoke)>(findPattern(CLIENT_DLL, "\xE8????\x8B\x4C\x24\x30\x33\xD2") + 1);
     getDecoratedPlayerName = relativeToAbsolute<decltype(getDecoratedPlayerName)>(findPattern(CLIENT_DLL, "\xE8????\x66\x83\x3E") + 1);
 
-    localPlayer.init(*reinterpret_cast<Entity***>(findPattern(CLIENT_DLL, "\xA1????\x89\x45\xBC\x85\xC0") + 1));
+    localPlayer.init(*reinterpret_cast<CSPlayer***>(findPattern(CLIENT_DLL, "\xA1????\x89\x45\xBC\x85\xC0") + 1));
 #elif __linux__
     debugMsg = decltype(debugMsg)(dlsym(dlopen(TIER0_DLL, RTLD_NOLOAD | RTLD_NOW), "Msg"));
 
     globalVars = *relativeToAbsolute<GlobalVars**>((*reinterpret_cast<std::uintptr_t**>(interfaces->client))[11] + 16);
     itemSystem = relativeToAbsolute<decltype(itemSystem)>(findPattern(CLIENT_DLL, "\xE8????\x4D\x63\xEC") + 1);
     weaponSystem = *relativeToAbsolute<WeaponSystem**>(findPattern(CLIENT_DLL, "\x48\x8B\x58\x10\x48\x8B\x07\xFF\x10") + 12);
-    localPlayer.init(relativeToAbsolute<Entity**>(findPattern(CLIENT_DLL, "\x83\xFF\xFF\x48\x8B\x05") + 6));
+    localPlayer.init(relativeToAbsolute<CSPlayer**>(findPattern(CLIENT_DLL, "\x83\xFF\xFF\x48\x8B\x05") + 6));
 
     isOtherEnemy = relativeToAbsolute<decltype(isOtherEnemy)>(findPattern(CLIENT_DLL, "\xE8????\x84\xC0\x44\x89\xE2") + 1);
     lineGoesThroughSmoke = reinterpret_cast<decltype(lineGoesThroughSmoke)>(findPattern(CLIENT_DLL, "\x40\x0F\xB6\xFF\x55"));
@@ -146,9 +176,9 @@ Memory::Memory() noexcept
     playerResource = relativeToAbsolute<PlayerResource**>(findPattern(CLIENT_DLL, "\x74\x38\x48\x8B\x3D????\x89\xDE") + 5);
 
     const auto libSDL = dlopen("libSDL2-2.0.so.0", RTLD_LAZY | RTLD_NOLOAD);
-    pollEvent = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_PollEvent")) + 3);
-    swapWindow = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_GL_SwapWindow")) + 3);
-    warpMouseInWindow = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_WarpMouseInWindow")) + 3);
+    pollEvent = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_PollEvent")) + 2);
+    swapWindow = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_GL_SwapWindow")) + 2);
+    warpMouseInWindow = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_WarpMouseInWindow")) + 2);
     dlclose(libSDL);
 #elif __APPLE__
     debugMsg = decltype(debugMsg)(dlsym(dlopen(TIER0_DLL, RTLD_NOLOAD | RTLD_NOW), "Msg"));
@@ -156,7 +186,7 @@ Memory::Memory() noexcept
     globalVars = *relativeToAbsolute<GlobalVars**>((*reinterpret_cast<std::uintptr_t**>(interfaces->client))[11] + 18);
     itemSystem = relativeToAbsolute<decltype(itemSystem)>(findPattern(CLIENT_DLL, "\x74\x06\x48\x83\xC7\x08") - 7);
     weaponSystem = *relativeToAbsolute<WeaponSystem**>(findPattern(CLIENT_DLL, "\x74\x1F\x48\x8B\x1D") + 5);
-    localPlayer.init(relativeToAbsolute<Entity**>(findPattern(CLIENT_DLL, "\x74\x10\x48\x63\xC7") + 8));
+    localPlayer.init(relativeToAbsolute<CSPlayer**>(findPattern(CLIENT_DLL, "\x74\x10\x48\x63\xC7") + 8));
 
     isOtherEnemy = relativeToAbsolute<decltype(isOtherEnemy)>(findPattern(CLIENT_DLL, "\xE8????\x34\x01\xEB\x06") + 1);
     lineGoesThroughSmoke = relativeToAbsolute<decltype(lineGoesThroughSmoke)>(findPattern(CLIENT_DLL, "\xE8????\x84\xC0\x75\x20\x4C\x89\xFF") + 1);
@@ -169,9 +199,9 @@ Memory::Memory() noexcept
     playerResource = relativeToAbsolute<PlayerResource**>(findPattern(CLIENT_DLL, "\x48\x8D\x05????\x48\x8B\x18\x48\x85\xDB\x74\x26") + 3);
     
     const auto libSDL = dlopen("libsdl2-2.0.0.dylib", RTLD_LAZY | RTLD_NOLOAD);
-    pollEvent = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_PollEvent")) + 3);
-    swapWindow = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_GL_SwapWindow")) + 3);
-    warpMouseInWindow = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_WarpMouseInWindow")) + 3);
+    pollEvent = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_PollEvent")) + 2);
+    swapWindow = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_GL_SwapWindow")) + 2);
+    warpMouseInWindow = relativeToAbsolute<uintptr_t>(uintptr_t(dlsym(libSDL, "SDL_WarpMouseInWindow")) + 2);
     dlclose(libSDL);
 #endif
 }

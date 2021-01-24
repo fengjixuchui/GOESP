@@ -5,13 +5,17 @@ Cross-platform streamproof ESP hack for CS:GO. Currently supports Windows and Li
 
 ## Showcase
 
+### Player List (new!)
+
+![Player List](https://i.imgur.com/rtwZP1q.png)
+
 ### Menu
 
 ![Menu](https://i.imgur.com/eJ1oDaL.png)
 
 ### Purchase List
 
-![Purchase List](https://i.imgur.com/qXvoe6Y.png)
+![Purchase List](https://i.imgur.com/58VLB8a.png)
 
 ### Player ESP
 
@@ -111,6 +115,6 @@ Yes, GOESP shouldn't collide with any other game modification.
 
 ## License
 
-> Copyright (c) 2019-2020 Daniel Krupiński
+> Copyright (c) 2019-2021 Daniel Krupiński
 
 This project is licensed under the [MIT License](https://opensource.org/licenses/mit-license.php) - see the [LICENSE](LICENSE) file for details.

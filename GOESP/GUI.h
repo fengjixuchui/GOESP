@@ -10,15 +10,18 @@ public:
     GUI() noexcept;
     void render() noexcept;
     ImFont* getUnicodeFont() const noexcept;
-
-    bool open = true;
-
+    void handleToggle() noexcept;
+    bool isOpen() const noexcept { return open; }
 private:
     void loadConfig() const noexcept;
     void saveConfig() const noexcept;
+    void createConfigDir() const noexcept;
 
-    std::filesystem::path path;
+    inline constexpr float animationLength() { return 0.35f; }
+    float toggleAnimationEnd = 0.0f;
+    bool open = true;
     ImFont* unicodeFont;
+    std::filesystem::path path;
 };
 
 inline std::unique_ptr<GUI> gui;

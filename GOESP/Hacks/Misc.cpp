@@ -66,6 +66,19 @@ struct OffscreenEnemies {
     bool enabled = false;
 };
 
+struct PlayerList {
+    bool enabled = false;
+    bool steamID = false;
+    bool rank = false;
+    bool money = true;
+    bool health = true;
+    bool armor = false;
+    bool lastPlace = false;
+    
+    ImVec2 pos;
+    ImVec2 size{ 270.0f, 200.0f };
+};
+
 struct {
     ColorToggleThickness reloadProgress{ 5.0f };
     ColorToggleThickness recoilCrosshair;
@@ -75,6 +88,8 @@ struct {
     bool ignoreFlashbang = false;
     OverlayWindow fpsCounter{ "FPS Counter" };
     OffscreenEnemies offscreenEnemies;
+    PlayerList playerList;
+    ColorToggle molotovRadius{ 1.0f, 0.27f, 0.0f, 0.3f };
 } miscConfig;
 
 void Misc::drawReloadProgress(ImDrawList* drawList) noexcept
@@ -172,7 +187,7 @@ void Misc::purchaseList(GameEvent* event) noexcept
     if (event) {
         switch (fnv::hashRuntime(event->getName())) {
         case fnv::hash("item_purchase"): {
-            const auto player = interfaces->entityList->getEntity(interfaces->engine->getPlayerForUserId(event->getInt("userid")));
+            const auto player = Entity::asPlayer(interfaces->entityList->getEntity(interfaces->engine->getPlayerForUserId(event->getInt("userid"))));
             if (!player || !localPlayer || !memory->isOtherEnemy(player, localPlayer.get()))
                 break;
 
@@ -213,7 +228,7 @@ void Misc::purchaseList(GameEvent* event) noexcept
 
         static const auto mp_buytime = interfaces->cvar->findVar("mp_buytime");
 
-        if ((!interfaces->engine->isInGame() || (freezeEnd != 0.0f && memory->globalVars->realtime > freezeEnd + (!miscConfig.purchaseList.onlyDuringFreezeTime ? mp_buytime->getFloat() : 0.0f)) || playerPurchases.empty() || purchaseTotal.empty()) && !gui->open)
+        if ((!interfaces->engine->isInGame() || (freezeEnd != 0.0f && memory->globalVars->realtime > freezeEnd + (!miscConfig.purchaseList.onlyDuringFreezeTime ? mp_buytime->getFloat() : 0.0f)) || playerPurchases.empty() || purchaseTotal.empty()) && !gui->isOpen())
             return;
         
         if (miscConfig.purchaseList.pos != ImVec2{}) {
@@ -227,7 +242,7 @@ void Misc::purchaseList(GameEvent* event) noexcept
         }
 
         ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoCollapse;
-        if (!gui->open)
+        if (!gui->isOpen())
             windowFlags |= ImGuiWindowFlags_NoInputs;
         if (miscConfig.purchaseList.noTitleBar)
             windowFlags |= ImGuiWindowFlags_NoTitleBar;
@@ -249,7 +264,7 @@ void Misc::purchaseList(GameEvent* event) noexcept
 
                 if (s.length() >= 2)
                     s.erase(s.length() - 2);
-                
+
                 if (const auto it = std::find_if(GameData::players().cbegin(), GameData::players().cend(), [userId = userId](const auto& playerData) { return playerData.userId == userId; }); it != GameData::players().cend()) {
                     if (miscConfig.purchaseList.showPrices)
                         ImGui::TextWrapped("%s $%d: %s", it->name, purchases.totalCost, s.c_str());
@@ -281,7 +296,7 @@ void Misc::drawObserverList() noexcept
 
     const auto& observers = GameData::observers();
 
-    if (std::none_of(observers.begin(), observers.end(), [](const auto& obs) { return obs.targetIsLocalPlayer; }) && !gui->open)
+    if (std::none_of(observers.begin(), observers.end(), [](const auto& obs) { return obs.targetIsLocalPlayer; }) && !gui->isOpen())
         return;
 
     if (miscConfig.observerList.pos != ImVec2{}) {
@@ -295,12 +310,13 @@ void Misc::drawObserverList() noexcept
     }
 
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoCollapse;
-    if (!gui->open)
+    if (!gui->isOpen())
         windowFlags |= ImGuiWindowFlags_NoInputs;
     if (miscConfig.observerList.noTitleBar)
         windowFlags |= ImGuiWindowFlags_NoTitleBar;
 
     ImGui::Begin("Observer List", nullptr, windowFlags);
+    ImGui::PushFont(gui->getUnicodeFont());
 
     for (const auto& observer : observers) {
         if (!observer.targetIsLocalPlayer)
@@ -311,6 +327,7 @@ void Misc::drawObserverList() noexcept
         }
     }
 
+    ImGui::PopFont();
     ImGui::End();
 }
 
@@ -337,7 +354,7 @@ void Misc::drawFpsCounter() noexcept
         return;
 
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize;
-    if (!gui->open)
+    if (!gui->isOpen())
         windowFlags |= ImGuiWindowFlags_NoInputs;
 
     ImGui::SetNextWindowBgAlpha(0.35f);
@@ -368,9 +385,10 @@ void Misc::drawOffscreenEnemies(ImDrawList* drawList) noexcept
 
         auto x = std::cos(yaw) * positionDiff.y - std::sin(yaw) * positionDiff.x;
         auto y = std::cos(yaw) * positionDiff.x + std::sin(yaw) * positionDiff.y;
-        const auto len = std::sqrt(x * x + y * y);
-        x /= len;
-        y /= len;
+        if (const auto len = std::sqrt(x * x + y * y); len != 0.0f) {
+            x /= len;
+            y /= len;
+        }
 
         const auto pos = ImGui::GetIO().DisplaySize / 2 + ImVec2{ x, y } * 200;
         if (player.fadingEndTime != 0.0f)
@@ -407,6 +425,8 @@ void Misc::draw(ImDrawList* drawList) noexcept
     drawNoscopeCrosshair(drawList);
     drawFpsCounter();
     drawOffscreenEnemies(drawList);
+    drawPlayerList();
+    drawMolotovRadii(drawList);
 }
 
 void Misc::drawGUI() noexcept
@@ -447,11 +467,166 @@ void Misc::drawGUI() noexcept
     ImGui::Checkbox("Ignore Flashbang", &miscConfig.ignoreFlashbang);
     ImGui::Checkbox("FPS Counter", &miscConfig.fpsCounter.enabled);
     ImGui::Checkbox("Offscreen Enemies", &miscConfig.offscreenEnemies.enabled);
+
+    ImGui::PushID("Player List");
+    ImGui::Checkbox("Player List", &miscConfig.playerList.enabled);
+    ImGui::SameLine();
+
+    if (ImGui::Button("..."))
+        ImGui::OpenPopup("");
+
+    if (ImGui::BeginPopup("")) {
+        ImGui::Checkbox("Steam ID", &miscConfig.playerList.steamID);
+        ImGui::Checkbox("Rank", &miscConfig.playerList.rank);
+        ImGui::Checkbox("Money", &miscConfig.playerList.money);
+        ImGui::Checkbox("Health", &miscConfig.playerList.health);
+        ImGui::Checkbox("Armor", &miscConfig.playerList.armor);
+        ImGui::Checkbox("Last Place", &miscConfig.playerList.lastPlace);
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+
+    ImGuiCustom::colorPicker("Molotov Radius", miscConfig.molotovRadius);
 }
 
 bool Misc::ignoresFlashbang() noexcept
 {
     return miscConfig.ignoreFlashbang;
+}
+
+void Misc::drawPlayerList() noexcept
+{
+    if (!miscConfig.playerList.enabled)
+        return;
+
+    if (miscConfig.playerList.pos != ImVec2{}) {
+        ImGui::SetNextWindowPos(miscConfig.playerList.pos);
+        miscConfig.playerList.pos = {};
+    }
+
+    if (miscConfig.playerList.size != ImVec2{}) {
+        ImGui::SetNextWindowSize(ImClamp(miscConfig.playerList.size, {}, ImGui::GetIO().DisplaySize));
+        miscConfig.playerList.size = {};
+    }
+
+    ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+    if (!gui->isOpen())
+        windowFlags |= ImGuiWindowFlags_NoInputs;
+
+    GameData::Lock lock;
+    if (GameData::players().empty() && !gui->isOpen())
+        return;
+
+    if (ImGui::Begin("Player List", nullptr, windowFlags)) {
+        if (ImGui::beginTable("", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_Hideable | ImGuiTableFlags_ScrollY)) {
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoHide, 150.0f);
+            ImGui::TableSetupColumn("Steam ID", ImGuiTableColumnFlags_WidthAuto);
+            ImGui::TableSetupColumn("Rank", ImGuiTableColumnFlags_WidthAuto);
+            ImGui::TableSetupColumn("Money", ImGuiTableColumnFlags_WidthAuto);
+            ImGui::TableSetupColumn("Health", ImGuiTableColumnFlags_WidthAuto);
+            ImGui::TableSetupColumn("Armor", ImGuiTableColumnFlags_WidthAuto);
+            ImGui::TableSetupColumn("Last Place", ImGuiTableColumnFlags_WidthAuto);
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetColumnIsEnabled(1, !miscConfig.playerList.steamID);
+            ImGui::TableSetColumnIsEnabled(2, !miscConfig.playerList.rank);
+            ImGui::TableSetColumnIsEnabled(3, !miscConfig.playerList.money);
+            ImGui::TableSetColumnIsEnabled(4, !miscConfig.playerList.health);
+            ImGui::TableSetColumnIsEnabled(5, !miscConfig.playerList.armor);
+            ImGui::TableSetColumnIsEnabled(6, !miscConfig.playerList.lastPlace);
+            
+            ImGui::TableHeadersRow();
+
+            std::vector<std::reference_wrapper<const PlayerData>> playersOrdered{ GameData::players().begin(), GameData::players().end() };
+            std::sort(playersOrdered.begin(), playersOrdered.end(), [](const auto& a, const auto& b) {
+                // enemies first
+                if (a.get().enemy != b.get().enemy)
+                    return a.get().enemy && !b.get().enemy;
+
+                return a.get().handle < b.get().handle;
+            });
+
+            ImGui::PushFont(gui->getUnicodeFont());
+
+            for (const auto& player : playersOrdered) {
+                ImGui::TableNextRow();
+                ImGui::PushID(ImGui::TableGetRowIndex());
+
+                ImGui::TableNextColumn();
+                ImGui::textEllipsisInTableCell(player.get().name);
+
+                if (ImGui::TableNextColumn() && ImGui::smallButtonFullWidth("Copy", player.get().steamID == 0))
+                    ImGui::SetClipboardText(std::to_string(player.get().steamID).c_str());
+
+                if (ImGui::TableNextColumn())
+                    ImGui::Image(player.get().getRankTexture(), { 2.45f /* -> proportion 49x20px */ * ImGui::GetTextLineHeight(), ImGui::GetTextLineHeight() });
+
+                if (ImGui::TableNextColumn())
+                    ImGui::TextColored({ 0.0f, 1.0f, 0.0f, 1.0f }, "$%d", player.get().money);
+
+                if (ImGui::TableNextColumn()) {
+                    if (!player.get().alive)
+                        ImGui::TextColored({ 1.0f, 0.0f, 0.0f, 1.0f }, "%s", "DEAD");
+                    else
+                        ImGui::Text("%d HP", player.get().health);
+                }
+
+                if (ImGui::TableNextColumn())
+                    ImGui::Text("%d", player.get().armor);
+
+                if (ImGui::TableNextColumn())
+                    ImGui::TextUnformatted(player.get().lastPlaceName.c_str());
+
+                ImGui::PopID();
+            }
+
+            ImGui::PopFont();
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
+}
+
+static bool worldToScreen(const Vector& in, ImVec2& out, bool floor = false) noexcept
+{
+    const auto& matrix = GameData::toScreenMatrix();
+
+    const auto w = matrix._41 * in.x + matrix._42 * in.y + matrix._43 * in.z + matrix._44;
+    if (w < 0.001f)
+        return false;
+
+    out = ImGui::GetIO().DisplaySize / 2.0f;
+    out.x *= 1.0f + (matrix._11 * in.x + matrix._12 * in.y + matrix._13 * in.z + matrix._14) / w;
+    out.y *= 1.0f - (matrix._21 * in.x + matrix._22 * in.y + matrix._23 * in.z + matrix._24) / w;
+    if (floor)
+        out = ImFloor(out);
+    return true;
+}
+
+void Misc::drawMolotovRadii(ImDrawList* drawList) noexcept
+{
+    if (!miscConfig.molotovRadius.enabled)
+        return;
+
+    const auto color = Helpers::calculateColor(miscConfig.molotovRadius);
+
+    GameData::Lock lock;
+
+    for (const auto& molotov : GameData::infernos()) {
+        for (const auto& pos : molotov.points) {
+            std::vector<ImVec2> screenPoints;
+
+            // TODO: optimize, reduce segments
+            for (int i = 0; i < 360; ++i) {
+                constexpr auto infernoFireWidth = 60.0f;
+                Vector vec{ infernoFireWidth * std::cos(Helpers::deg2rad(float(i))), infernoFireWidth * std::sin(Helpers::deg2rad(float(i))), 0.0f };
+
+                if (ImVec2 screenPos; worldToScreen(pos + vec, screenPos))
+                    screenPoints.push_back(screenPos);
+            }
+
+            drawList->AddConvexPolyFilled(screenPoints.data(), screenPoints.size(), color);
+        }
+    }
 }
 
 static void to_json(json& j, const PurchaseList& o, const PurchaseList& dummy = {})
@@ -492,6 +667,22 @@ static void to_json(json& j, const OffscreenEnemies& o, const OffscreenEnemies& 
     WRITE("Enabled", enabled)
 }
 
+static void to_json(json& j, const PlayerList& o, const PlayerList& dummy = {})
+{
+    WRITE("Enabled", enabled)
+    WRITE("Steam ID", steamID)
+    WRITE("Rank", rank)
+    WRITE("Money", money)
+    WRITE("Health", health)
+    WRITE("Armor", armor)
+    WRITE("Last Place", lastPlace)
+
+    if (const auto window = ImGui::FindWindowByName("Player List")) {
+        j["Pos"] = window->Pos;
+        j["Size"] = window->SizeFull;
+    }
+}
+
 json Misc::toJSON() noexcept
 {
     json j;
@@ -506,6 +697,8 @@ json Misc::toJSON() noexcept
     j["Observer List"] = miscConfig.observerList;
     j["FPS Counter"] = miscConfig.fpsCounter;
     j["Offscreen Enemies"] = miscConfig.offscreenEnemies;
+    j["Player List"] = miscConfig.playerList;
+    j["Molotov Radius"] = miscConfig.molotovRadius;
 
     return j;
 }
@@ -540,6 +733,19 @@ static void from_json(const json& j, OffscreenEnemies& o)
     read(j, "Enabled", o.enabled);
 }
 
+static void from_json(const json& j, PlayerList& o)
+{
+    read(j, "Enabled", o.enabled);
+    read(j, "Steam ID", o.steamID);
+    read(j, "Rank", o.rank);
+    read(j, "Money", o.money);
+    read(j, "Health", o.health);
+    read(j, "Armor", o.armor);
+    read(j, "Last Place", o.lastPlace);
+    read<value_t::object>(j, "Pos", o.pos);
+    read<value_t::object>(j, "Size", o.size);
+}
+
 void Misc::fromJSON(const json& j) noexcept
 {
     read<value_t::object>(j, "Reload Progress", miscConfig.reloadProgress);
@@ -550,4 +756,6 @@ void Misc::fromJSON(const json& j) noexcept
     read(j, "Ignore Flashbang", miscConfig.ignoreFlashbang);
     read<value_t::object>(j, "FPS Counter", miscConfig.fpsCounter);
     read<value_t::object>(j, "Offscreen Enemies", miscConfig.offscreenEnemies);
+    read<value_t::object>(j, "Player List", miscConfig.playerList);
+    read<value_t::object>(j, "Molotov Radius", miscConfig.molotovRadius);
 }

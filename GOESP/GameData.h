@@ -8,6 +8,7 @@
 
 #include "imgui/imgui.h"
 
+#include "SDK/Entity.h"
 #include "SDK/Vector.h"
 
 struct LocalPlayerData;
@@ -18,6 +19,7 @@ struct WeaponData;
 struct EntityData;
 struct LootCrateData;
 struct ProjectileData;
+struct InfernoData;
 
 struct Matrix4x4;
 
@@ -44,6 +46,7 @@ namespace GameData
     const std::vector<EntityData>& entities() noexcept;
     const std::vector<LootCrateData>& lootCrates() noexcept;
     const std::list<ProjectileData>& projectiles() noexcept;
+    const std::vector<InfernoData>& infernos() noexcept;
 }
 
 struct LocalPlayerData {
@@ -100,14 +103,15 @@ struct ProjectileData : BaseData {
 };
 
 struct PlayerData : BaseData {
-    PlayerData(Entity* entity) noexcept;
+    PlayerData(CSPlayer* entity) noexcept;
     PlayerData(const PlayerData&) = delete;
     PlayerData& operator=(const PlayerData&) = delete;
     PlayerData(PlayerData&& other) = default;
     PlayerData& operator=(PlayerData&& other) = default;
 
-    void update(Entity* entity) noexcept;
+    void update(CSPlayer* entity) noexcept;
     ImTextureID getAvatarTexture() const noexcept;
+    ImTextureID getRankTexture() const noexcept;
     void clearAvatarTexture() noexcept { avatarTexture = {}; }
 
     bool dormant;
@@ -118,17 +122,23 @@ struct PlayerData : BaseData {
     bool audible;
     bool spotted;
     bool immune;
+    bool hasAvatar = false;
     float fadingEndTime = 0.0f;
     float flashDuration;
     int health;
+    int armor;
     int userId;
     int handle;
+    int money;
+    Team team;
+    std::uint64_t steamID;
     char name[128];
     std::string activeWeapon;
     Vector origin;
     std::vector<std::pair<Vector, Vector>> bones;
     Vector headMins, headMaxs;
-private:
+    std::string lastPlaceName;
+
     class Texture {
         ImTextureID texture = nullptr;
     public:
@@ -143,6 +153,9 @@ private:
         void clear() noexcept;
         ImTextureID get() noexcept { return texture; }
     };
+private:
+    int skillgroup;
+
     mutable Texture avatarTexture;
     std::uint8_t avatarRGBA[4 * 32 * 32 * sizeof(char)];
 };
@@ -164,7 +177,7 @@ struct LootCrateData : BaseData {
 };
 
 struct ObserverData {
-    ObserverData(Entity* entity, Entity* obs, bool targetIsLocalPlayer) noexcept;
+    ObserverData(CSPlayer* entity, CSPlayer* obs, bool targetIsLocalPlayer) noexcept;
 
     int playerUserId;
     int targetUserId;
@@ -177,4 +190,10 @@ struct BombData {
     int bombsite;
     float blowTime;
     float defuseCountDown;
+};
+
+struct InfernoData {
+    InfernoData(Entity* inferno) noexcept;
+
+    std::vector<Vector> points;
 };

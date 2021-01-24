@@ -12,7 +12,7 @@
 #include "ModelInfo.h"
 #include "PlayerResource.h"
 
-bool Entity::canSee(Entity* other, const Vector& pos) noexcept
+bool CSPlayer::canSee(Entity* other, const Vector& pos) noexcept
 {
     const auto eyePos = getEyePosition();
 
@@ -24,7 +24,7 @@ bool Entity::canSee(Entity* other, const Vector& pos) noexcept
     return trace.entity == other || trace.fraction > 0.97f;
 }
 
-bool Entity::visibleTo(Entity* other) noexcept
+bool CSPlayer::visibleTo(CSPlayer* other) noexcept
 {
     assert(isAlive());
 
@@ -59,14 +59,14 @@ bool Entity::visibleTo(Entity* other) noexcept
     return false;
 }
 
-[[nodiscard]] std::string Entity::getPlayerName() noexcept
+[[nodiscard]] std::string CSPlayer::getPlayerName() noexcept
 {
     char name[128];
     getPlayerName(name);
     return name;
 }
 
-void Entity::getPlayerName(char(&out)[128]) noexcept
+void CSPlayer::getPlayerName(char(&out)[128]) noexcept
 {
     if (!*memory->playerResource) {
         strcpy(out, "unknown");
@@ -74,7 +74,7 @@ void Entity::getPlayerName(char(&out)[128]) noexcept
     }
 
     wchar_t wide[128];
-    memory->getDecoratedPlayerName(*memory->playerResource, index(), wide, sizeof(wide), 28);
+    memory->getDecoratedPlayerName(*memory->playerResource, index(), wide, sizeof(wide), 4);
 
     auto end = std::remove(wide, wide + wcslen(wide), L'\n');
     *end = L'\0';
@@ -84,14 +84,14 @@ void Entity::getPlayerName(char(&out)[128]) noexcept
     interfaces->localize->convertUnicodeToAnsi(wide, out, 128);
 }
 
-int Entity::getUserId() noexcept
+int CSPlayer::getUserId() noexcept
 {
     if (PlayerInfo playerInfo; interfaces->engine->getPlayerInfo(index(), playerInfo))
         return playerInfo.userId;
     return -1;
 }
 
-bool Entity::isEnemy() noexcept
+bool CSPlayer::isEnemy() noexcept
 {
     if (!localPlayer) {
         assert(false);
@@ -103,4 +103,18 @@ bool Entity::isEnemy() noexcept
         return getTeamNumber() != Team::CT;
     }
     return memory->isOtherEnemy(this, localPlayer.get());
+}
+
+bool CSPlayer::isGOTV() noexcept
+{
+    if (PlayerInfo playerInfo; interfaces->engine->getPlayerInfo(index(), playerInfo))
+        return playerInfo.hltv;
+    return false;
+}
+
+std::uint64_t CSPlayer::getSteamID() noexcept
+{
+    if (PlayerInfo playerInfo; interfaces->engine->getPlayerInfo(index(), playerInfo))
+        return playerInfo.xuid;
+    return 0;
 }

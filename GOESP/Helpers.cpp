@@ -60,7 +60,7 @@ ImWchar* Helpers::getFontGlyphRanges() noexcept
     static ImVector<ImWchar> ranges;
     if (ranges.empty()) {
         ImFontGlyphRangesBuilder builder;
-        constexpr ImWchar baseRanges[]{ 0x0100, 0x024F, 0x0370, 0x03FF, 0x0600, 0x06FF, 0x0E00, 0x0E7F, 0 };
+        constexpr ImWchar baseRanges[]{ 0x0100, 0x024F, 0x0370, 0x03FF, 0x0600, 0x06FF, 0x0E00, 0x0E7F, 0x2600, 0x26FF, 0 };
         builder.AddRanges(baseRanges);
         builder.AddRanges(ImGui::GetIO().Fonts->GetGlyphRangesCyrillic());
         builder.AddRanges(ImGui::GetIO().Fonts->GetGlyphRangesChineseSimplifiedCommon());
@@ -76,7 +76,12 @@ ImWchar* Helpers::getFontGlyphRangesChinese() noexcept
     if (ranges.empty()) {
         ImFontGlyphRangesBuilder builder;
         builder.AddRanges(ImGui::GetIO().Fonts->GetGlyphRangesChineseSimplifiedCommon());
-        builder.AddChar(0x739B); builder.AddChar(0x5C14); builder.AddChar(0x6D1B);
+        builder.AddChar(0x739B); builder.AddChar(0x5C14); builder.AddChar(0x6D1B); builder.AddChar(0x97E6);
+        builder.AddChar(0x76D4); builder.AddChar(0x64BC); builder.AddChar(0x9975); builder.AddChar(0x8166);
+        builder.AddChar(0x96FB); builder.AddChar(0x7DAD); builder.AddChar(0x5F48); builder.AddChar(0x723E);
+        builder.AddChar(0x85A9); builder.AddChar(0x8A98); builder.AddChar(0x990C); builder.AddChar(0x51F1);
+        builder.AddChar(0x9727); builder.AddChar(0x9583); builder.AddChar(0x7159); builder.AddChar(0x6771);
+        builder.AddChar(0x6C40); builder.AddChar(0x594E); builder.AddChar(0x9CA8);
         builder.BuildRanges(&ranges);
     }
     return ranges.Data;
