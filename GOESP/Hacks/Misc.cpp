@@ -1,3 +1,9 @@
+#include <numbers>
+#include <numeric>
+#include <sstream>
+#include <unordered_map>
+#include <vector>
+
 #include "Misc.h"
 
 #include "../imgui/imgui.h"
@@ -25,11 +31,6 @@
 
 #include "../ImGuiCustom.h"
 #include "../imgui/imgui.h"
-
-#include <numbers>
-#include <numeric>
-#include <unordered_map>
-#include <vector>
 
 struct PurchaseList {
     bool enabled = false;
@@ -74,7 +75,7 @@ struct PlayerList {
     bool health = true;
     bool armor = false;
     bool lastPlace = false;
-    
+
     ImVec2 pos;
     ImVec2 size{ 270.0f, 200.0f };
 };
@@ -89,7 +90,9 @@ struct {
     OverlayWindow fpsCounter{ "FPS Counter" };
     OffscreenEnemies offscreenEnemies;
     PlayerList playerList;
-    ColorToggle molotovRadius{ 1.0f, 0.27f, 0.0f, 0.3f };
+    ColorToggle molotovHull{ 1.0f, 0.27f, 0.0f, 0.3f };
+    ColorToggle bombTimer{ 1.0f, 0.55f, 0.0f, 1.0f };
+    ColorToggle smokeHull{ 0.0f, 0.81f, 1.0f, 0.60f };
 } miscConfig;
 
 void Misc::drawReloadProgress(ImDrawList* drawList) noexcept
@@ -230,7 +233,7 @@ void Misc::purchaseList(GameEvent* event) noexcept
 
         if ((!interfaces->engine->isInGame() || (freezeEnd != 0.0f && memory->globalVars->realtime > freezeEnd + (!miscConfig.purchaseList.onlyDuringFreezeTime ? mp_buytime->getFloat() : 0.0f)) || playerPurchases.empty() || purchaseTotal.empty()) && !gui->isOpen())
             return;
-        
+
         if (miscConfig.purchaseList.pos != ImVec2{}) {
             ImGui::SetNextWindowPos(miscConfig.purchaseList.pos);
             miscConfig.purchaseList.pos = {};
@@ -265,7 +268,7 @@ void Misc::purchaseList(GameEvent* event) noexcept
                 if (s.length() >= 2)
                     s.erase(s.length() - 2);
 
-                if (const auto it = std::find_if(GameData::players().cbegin(), GameData::players().cend(), [userId = userId](const auto& playerData) { return playerData.userId == userId; }); it != GameData::players().cend()) {
+                if (const auto it = std::ranges::find(GameData::players(), userId, &PlayerData::userId); it != GameData::players().cend()) {
                     if (miscConfig.purchaseList.showPrices)
                         ImGui::TextWrapped("%s $%d: %s", it->name, purchases.totalCost, s.c_str());
                     else
@@ -296,7 +299,7 @@ void Misc::drawObserverList() noexcept
 
     const auto& observers = GameData::observers();
 
-    if (std::none_of(observers.begin(), observers.end(), [](const auto& obs) { return obs.targetIsLocalPlayer; }) && !gui->isOpen())
+    if (std::ranges::none_of(observers, [](const auto& obs) { return obs.targetIsLocalPlayer; }) && !gui->isOpen())
         return;
 
     if (miscConfig.observerList.pos != ImVec2{}) {
@@ -322,7 +325,7 @@ void Misc::drawObserverList() noexcept
         if (!observer.targetIsLocalPlayer)
             continue;
 
-        if (const auto it = std::find_if(GameData::players().cbegin(), GameData::players().cend(), [userId = observer.playerUserId](const auto& playerData) { return playerData.userId == userId; }); it != GameData::players().cend()) {
+        if (const auto it = std::ranges::find(GameData::players(), observer.playerUserId, &PlayerData::userId); it != GameData::players().cend()) {
             ImGui::TextWrapped("%s", it->name);
         }
     }
@@ -359,7 +362,7 @@ void Misc::drawFpsCounter() noexcept
 
     ImGui::SetNextWindowBgAlpha(0.35f);
     ImGui::Begin("FPS Counter", nullptr, windowFlags);
-    
+
     static auto frameRate = 1.0f;
     frameRate = 0.9f * frameRate + 0.1f * memory->globalVars->absoluteFrameTime;
     if (frameRate != 0.0f)
@@ -416,21 +419,75 @@ void Misc::drawOffscreenEnemies(ImDrawList* drawList) noexcept
     }
 }
 
-void Misc::draw(ImDrawList* drawList) noexcept
+static void drawBombTimer() noexcept
 {
-    drawReloadProgress(drawList);
-    drawRecoilCrosshair(drawList);
-    purchaseList();
-    drawObserverList();
-    drawNoscopeCrosshair(drawList);
-    drawFpsCounter();
-    drawOffscreenEnemies(drawList);
-    drawPlayerList();
-    drawMolotovRadii(drawList);
+    if (!miscConfig.bombTimer.enabled)
+        return;
+
+    GameData::Lock lock;
+
+    const auto& plantedC4 = GameData::plantedC4();
+    if (plantedC4.blowTime == 0.0f && !gui->isOpen())
+        return;
+
+    if (!gui->isOpen()) {
+        ImGui::SetNextWindowBgAlpha(0.3f);
+    }
+
+    static float windowWidth = 200.0f;
+    ImGui::SetNextWindowPos({ (ImGui::GetIO().DisplaySize.x - 200.0f) / 2.0f, 60.0f }, ImGuiCond_Once);
+    ImGui::SetNextWindowSize({ windowWidth, 0 }, ImGuiCond_Once);
+
+    if (!gui->isOpen())
+        ImGui::SetNextWindowSize({ windowWidth, 0 });
+
+    ImGui::SetNextWindowSizeConstraints({ 0, -1 }, { FLT_MAX, -1 });
+    ImGui::Begin("Bomb Timer", nullptr, ImGuiWindowFlags_NoTitleBar | (gui->isOpen() ? 0 : ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoDecoration));
+
+    std::ostringstream ss; ss << "Bomb on " << (!plantedC4.bombsite ? 'A' : 'B') << " : " << std::fixed << std::showpoint << std::setprecision(3) << (std::max)(plantedC4.blowTime - memory->globalVars->currenttime, 0.0f) << " s";
+
+    ImGui::textUnformattedCentered(ss.str().c_str());
+
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, Helpers::calculateColor(miscConfig.bombTimer));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4{ 0.2f, 0.2f, 0.2f, 1.0f });
+    ImGui::progressBarFullWidth((plantedC4.blowTime - memory->globalVars->currenttime) / plantedC4.timerLength, 5.0f);
+
+    if (plantedC4.defuserHandle != -1) {
+        const bool canDefuse = plantedC4.blowTime >= plantedC4.defuseCountDown;
+
+        if (plantedC4.defuserHandle == GameData::local().handle) {
+            if (canDefuse) {
+                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 255, 0, 255));
+                ImGui::textUnformattedCentered("You can defuse!");
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+                ImGui::textUnformattedCentered("You can not defuse!");
+            }
+            ImGui::PopStyleColor();
+        } else if (const auto defusingPlayer = GameData::playerByHandle(plantedC4.defuserHandle)) {
+            std::ostringstream ss; ss << defusingPlayer->name << " is defusing: " << std::fixed << std::showpoint << std::setprecision(3) << (std::max)(plantedC4.defuseCountDown - memory->globalVars->currenttime, 0.0f) << " s";
+
+            ImGui::textUnformattedCentered(ss.str().c_str());
+
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, canDefuse ? IM_COL32(0, 255, 0, 255) : IM_COL32(255, 0, 0, 255));
+            ImGui::progressBarFullWidth((plantedC4.defuseCountDown - memory->globalVars->currenttime) / plantedC4.defuseLength, 5.0f);
+            ImGui::PopStyleColor();
+        }
+    }
+
+    windowWidth = ImGui::GetCurrentWindow()->SizeFull.x;
+
+    ImGui::PopStyleColor(2);
+    ImGui::End();
 }
 
 void Misc::drawGUI() noexcept
 {
+    if (!ImGui::BeginTable("table", 2))
+        return;
+
+    ImGui::TableNextColumn();
+
     ImGuiCustom::colorPicker("Reload Progress", miscConfig.reloadProgress);
     ImGuiCustom::colorPicker("Recoil Crosshair", miscConfig.recoilCrosshair);
     ImGuiCustom::colorPicker("Noscope Crosshair", miscConfig.noscopeCrosshair);
@@ -486,7 +543,14 @@ void Misc::drawGUI() noexcept
     }
     ImGui::PopID();
 
-    ImGuiCustom::colorPicker("Molotov Radius", miscConfig.molotovRadius);
+    ImGuiCustom::colorPicker("Molotov Hull", miscConfig.molotovHull);
+    ImGuiCustom::colorPicker("Bomb Timer", miscConfig.bombTimer);
+
+    ImGui::TableNextColumn();
+
+    ImGuiCustom::colorPicker("Smoke Hull", miscConfig.smokeHull);
+
+    ImGui::EndTable();
 }
 
 bool Misc::ignoresFlashbang() noexcept
@@ -520,12 +584,12 @@ void Misc::drawPlayerList() noexcept
     if (ImGui::Begin("Player List", nullptr, windowFlags)) {
         if (ImGui::beginTable("", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_Hideable | ImGuiTableFlags_ScrollY)) {
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoHide, 150.0f);
-            ImGui::TableSetupColumn("Steam ID", ImGuiTableColumnFlags_WidthAuto);
-            ImGui::TableSetupColumn("Rank", ImGuiTableColumnFlags_WidthAuto);
-            ImGui::TableSetupColumn("Money", ImGuiTableColumnFlags_WidthAuto);
-            ImGui::TableSetupColumn("Health", ImGuiTableColumnFlags_WidthAuto);
-            ImGui::TableSetupColumn("Armor", ImGuiTableColumnFlags_WidthAuto);
-            ImGui::TableSetupColumn("Last Place", ImGuiTableColumnFlags_WidthAuto);
+            ImGui::TableSetupColumn("Steam ID", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize);
+            ImGui::TableSetupColumn("Rank", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize);
+            ImGui::TableSetupColumn("Money", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize);
+            ImGui::TableSetupColumn("Health", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize);
+            ImGui::TableSetupColumn("Armor", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize);
+            ImGui::TableSetupColumn("Last Place", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize);
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableSetColumnIsEnabled(1, !miscConfig.playerList.steamID);
             ImGui::TableSetColumnIsEnabled(2, !miscConfig.playerList.rank);
@@ -533,17 +597,17 @@ void Misc::drawPlayerList() noexcept
             ImGui::TableSetColumnIsEnabled(4, !miscConfig.playerList.health);
             ImGui::TableSetColumnIsEnabled(5, !miscConfig.playerList.armor);
             ImGui::TableSetColumnIsEnabled(6, !miscConfig.playerList.lastPlace);
-            
+
             ImGui::TableHeadersRow();
 
             std::vector<std::reference_wrapper<const PlayerData>> playersOrdered{ GameData::players().begin(), GameData::players().end() };
-            std::sort(playersOrdered.begin(), playersOrdered.end(), [](const auto& a, const auto& b) {
+            std::ranges::sort(playersOrdered, [](const auto& a, const auto& b) {
                 // enemies first
                 if (a.get().enemy != b.get().enemy)
                     return a.get().enemy && !b.get().enemy;
 
                 return a.get().handle < b.get().handle;
-            });
+                });
 
             ImGui::PushFont(gui->getUnicodeFont());
 
@@ -586,47 +650,176 @@ void Misc::drawPlayerList() noexcept
     ImGui::End();
 }
 
-static bool worldToScreen(const Vector& in, ImVec2& out, bool floor = false) noexcept
+void Misc::drawMolotovHull(ImDrawList* drawList) noexcept
 {
-    const auto& matrix = GameData::toScreenMatrix();
-
-    const auto w = matrix._41 * in.x + matrix._42 * in.y + matrix._43 * in.z + matrix._44;
-    if (w < 0.001f)
-        return false;
-
-    out = ImGui::GetIO().DisplaySize / 2.0f;
-    out.x *= 1.0f + (matrix._11 * in.x + matrix._12 * in.y + matrix._13 * in.z + matrix._14) / w;
-    out.y *= 1.0f - (matrix._21 * in.x + matrix._22 * in.y + matrix._23 * in.z + matrix._24) / w;
-    if (floor)
-        out = ImFloor(out);
-    return true;
-}
-
-void Misc::drawMolotovRadii(ImDrawList* drawList) noexcept
-{
-    if (!miscConfig.molotovRadius.enabled)
+    if (!miscConfig.molotovHull.enabled)
         return;
 
-    const auto color = Helpers::calculateColor(miscConfig.molotovRadius);
+    const auto color = Helpers::calculateColor(miscConfig.molotovHull);
+
+    static const auto flameCircumference = []{
+        std::array<Vector, 72> points;
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            constexpr auto flameRadius = 60.0f; // https://github.com/perilouswithadollarsign/cstrike15_src/blob/f82112a2388b841d72cb62ca48ab1846dfcc11c8/game/server/cstrike15/Effects/inferno.cpp#L889
+            points[i] = Vector{ flameRadius * std::cos(Helpers::deg2rad(i * (360.0f / points.size()))),
+                                flameRadius * std::sin(Helpers::deg2rad(i * (360.0f / points.size()))),
+                                0.0f };
+        }
+        return points;
+    }();
 
     GameData::Lock lock;
-
     for (const auto& molotov : GameData::infernos()) {
         for (const auto& pos : molotov.points) {
-            std::vector<ImVec2> screenPoints;
+            std::array<ImVec2, flameCircumference.size()> screenPoints;
+            std::size_t count = 0;
 
-            // TODO: optimize, reduce segments
-            for (int i = 0; i < 360; ++i) {
-                constexpr auto infernoFireWidth = 60.0f;
-                Vector vec{ infernoFireWidth * std::cos(Helpers::deg2rad(float(i))), infernoFireWidth * std::sin(Helpers::deg2rad(float(i))), 0.0f };
-
-                if (ImVec2 screenPos; worldToScreen(pos + vec, screenPos))
-                    screenPoints.push_back(screenPos);
+            for (const auto& point : flameCircumference) {
+                if (GameData::worldToScreen(pos + point, screenPoints[count]))
+                    ++count;
             }
 
-            drawList->AddConvexPolyFilled(screenPoints.data(), screenPoints.size(), color);
+            drawList->AddConvexPolyFilled(screenPoints.data(), count, color);
         }
     }
+}
+
+#define IM_NORMALIZE2F_OVER_ZERO(VX,VY)     do { float d2 = VX*VX + VY*VY; if (d2 > 0.0f) { float inv_len = 1.0f / ImSqrt(d2); VX *= inv_len; VY *= inv_len; } } while (0)
+#define IM_FIXNORMAL2F(VX,VY)               do { float d2 = VX*VX + VY*VY; if (d2 < 0.5f) d2 = 0.5f; float inv_lensq = 1.0f / d2; VX *= inv_lensq; VY *= inv_lensq; } while (0)
+
+static auto generateAntialiasedDot() noexcept
+{
+    constexpr auto segments = 12;
+    constexpr auto radius = 1.0f;
+
+    // based on ImDrawList::PathArcToFast()
+    std::array<ImVec2, segments> circleSegments;
+
+    for (int i = 0; i < segments; ++i) {
+        const auto data = ImGui::GetDrawListSharedData();
+        const ImVec2& c = data->ArcFastVtx[i % IM_ARRAYSIZE(data->ArcFastVtx)];
+        circleSegments[i] = ImVec2{ c.x * radius, c.y * radius };
+    }
+
+    // based on ImDrawList::AddConvexPolyFilled()
+    const float AA_SIZE = 1.0f; // _FringeScale;
+    constexpr int idx_count = (segments - 2) * 3 + segments * 6;
+    constexpr int vtx_count = (segments * 2);
+
+    std::array<ImDrawIdx, idx_count> indices;
+    std::size_t indexIdx = 0;
+
+    // Add indexes for fill
+    for (int i = 2; i < segments; ++i) {
+        indices[indexIdx++] = 0;
+        indices[indexIdx++] = (i - 1) << 1;
+        indices[indexIdx++] = i << 1;
+    }
+
+    // Compute normals
+    std::array<ImVec2, segments> temp_normals;
+    for (int i0 = segments - 1, i1 = 0; i1 < segments; i0 = i1++) {
+        const ImVec2& p0 = circleSegments[i0];
+        const ImVec2& p1 = circleSegments[i1];
+        float dx = p1.x - p0.x;
+        float dy = p1.y - p0.y;
+        IM_NORMALIZE2F_OVER_ZERO(dx, dy);
+        temp_normals[i0].x = dy;
+        temp_normals[i0].y = -dx;
+    }
+
+    std::array<ImVec2, vtx_count> vertices;
+    std::size_t vertexIdx = 0;
+
+    for (int i0 = segments - 1, i1 = 0; i1 < segments; i0 = i1++) {
+        // Average normals
+        const ImVec2& n0 = temp_normals[i0];
+        const ImVec2& n1 = temp_normals[i1];
+        float dm_x = (n0.x + n1.x) * 0.5f;
+        float dm_y = (n0.y + n1.y) * 0.5f;
+        IM_FIXNORMAL2F(dm_x, dm_y);
+        dm_x *= AA_SIZE * 0.5f;
+        dm_y *= AA_SIZE * 0.5f;
+
+        vertices[vertexIdx++] = ImVec2{ circleSegments[i1].x - dm_x, circleSegments[i1].y - dm_y };
+        vertices[vertexIdx++] = ImVec2{ circleSegments[i1].x + dm_x, circleSegments[i1].y + dm_y };
+
+        indices[indexIdx++] = (i1 << 1);
+        indices[indexIdx++] = (i0 << 1);
+        indices[indexIdx++] = (i0 << 1) + 1;
+        indices[indexIdx++] = (i0 << 1) + 1;
+        indices[indexIdx++] = (i1 << 1) + 1;
+        indices[indexIdx++] = (i1 << 1);
+    }
+
+    return std::make_pair(vertices, indices);
+}
+
+static void drawSmokeHull(ImDrawList* drawList) noexcept
+{
+    if (!miscConfig.smokeHull.enabled)
+        return;
+
+    const auto color = Helpers::calculateColor(miscConfig.smokeHull);
+
+    static const auto spheroidPoints = [] {
+        std::array<Vector, 2000> points;
+
+        constexpr auto goldenAngle = static_cast<float>(2.399963229728653);
+        constexpr auto radius = 140.0f;
+
+        for (std::size_t i = 1; i <= points.size(); ++i) {
+            const auto latitude = std::asin(2.0f * i / (points.size() + 1) - 1.0f);
+            const auto longitude = goldenAngle * i;
+
+            points[i - 1] = Vector{ std::cos(longitude) * std::cos(latitude) * radius,  std::sin(longitude) * std::cos(latitude) * radius,  std::sin(latitude) * radius * 0.7f };
+        }
+        return points;
+    }();
+
+    static const auto [vertices, indices] = generateAntialiasedDot();
+
+    GameData::Lock lock;
+    for (const auto& smokePos : GameData::smokes()) {
+        for (const auto& point : spheroidPoints) {
+            if (ImVec2 screenPos; GameData::worldToScreen(smokePos + point, screenPos)) {
+                drawList->PrimReserve(indices.size(), vertices.size());
+
+                const ImU32 colors[2]{ color, color & ~IM_COL32_A_MASK };
+                const auto uv = ImGui::GetDrawListSharedData()->TexUvWhitePixel;
+                for (std::size_t i = 0; i < vertices.size(); ++i) {
+                    drawList->_VtxWritePtr[i].pos = vertices[i] + screenPos;
+                    drawList->_VtxWritePtr[i].uv = uv;
+                    drawList->_VtxWritePtr[i].col = colors[i & 1];
+                }
+                drawList->_VtxWritePtr += vertices.size();
+
+                std::memcpy(drawList->_IdxWritePtr, indices.data(), indices.size() * sizeof(ImDrawIdx));
+
+                const auto baseIdx = drawList->_VtxCurrentIdx;
+                for (std::size_t i = 0; i < indices.size(); ++i)
+                    drawList->_IdxWritePtr[i] += baseIdx;
+
+                drawList->_IdxWritePtr += indices.size();
+                drawList->_VtxCurrentIdx += (ImDrawIdx)vertices.size();
+            }
+        }
+    }
+}
+
+void Misc::draw(ImDrawList* drawList) noexcept
+{
+    drawReloadProgress(drawList);
+    drawRecoilCrosshair(drawList);
+    purchaseList();
+    drawObserverList();
+    drawNoscopeCrosshair(drawList);
+    drawFpsCounter();
+    drawOffscreenEnemies(drawList);
+    drawPlayerList();
+    drawMolotovHull(drawList);
+    drawBombTimer();
+    drawSmokeHull(drawList);
 }
 
 static void to_json(json& j, const PurchaseList& o, const PurchaseList& dummy = {})
@@ -686,19 +879,22 @@ static void to_json(json& j, const PlayerList& o, const PlayerList& dummy = {})
 json Misc::toJSON() noexcept
 {
     json j;
-    to_json(j["Reload Progress"], miscConfig.reloadProgress, ColorToggleThickness{ 5.0f });
 
-    if (miscConfig.ignoreFlashbang)
-        j["Ignore Flashbang"] = miscConfig.ignoreFlashbang;
+    const auto& o = miscConfig;
+    const decltype(miscConfig) dummy;
 
-    j["Recoil Crosshair"] = miscConfig.recoilCrosshair;
-    j["Noscope Crosshair"] = miscConfig.noscopeCrosshair;
-    j["Purchase List"] = miscConfig.purchaseList;
-    j["Observer List"] = miscConfig.observerList;
-    j["FPS Counter"] = miscConfig.fpsCounter;
-    j["Offscreen Enemies"] = miscConfig.offscreenEnemies;
-    j["Player List"] = miscConfig.playerList;
-    j["Molotov Radius"] = miscConfig.molotovRadius;
+    WRITE_OBJ("Reload Progress", reloadProgress);
+    WRITE("Ignore Flashbang", ignoreFlashbang);
+    WRITE_OBJ("Recoil Crosshair", recoilCrosshair);
+    WRITE_OBJ("Noscope Crosshair", noscopeCrosshair);
+    WRITE_OBJ("Purchase List", purchaseList);
+    WRITE_OBJ("Observer List", observerList);
+    WRITE_OBJ("FPS Counter", fpsCounter);
+    WRITE_OBJ("Offscreen Enemies", offscreenEnemies);
+    WRITE_OBJ("Player List", playerList);
+    WRITE_OBJ("Molotov Hull", molotovHull);
+    WRITE_OBJ("Bomb Timer", bombTimer);
+    WRITE_OBJ("Smoke Hull", smokeHull);
 
     return j;
 }
@@ -757,5 +953,7 @@ void Misc::fromJSON(const json& j) noexcept
     read<value_t::object>(j, "FPS Counter", miscConfig.fpsCounter);
     read<value_t::object>(j, "Offscreen Enemies", miscConfig.offscreenEnemies);
     read<value_t::object>(j, "Player List", miscConfig.playerList);
-    read<value_t::object>(j, "Molotov Radius", miscConfig.molotovRadius);
+    read<value_t::object>(j, "Molotov Hull", miscConfig.molotovHull);
+    read<value_t::object>(j, "Bomb Timer", miscConfig.bombTimer);
+    read<value_t::object>(j, "Smoke Hull", miscConfig.smokeHull);
 }

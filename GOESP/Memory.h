@@ -8,8 +8,10 @@
 
 #include "SDK/Platform.h"
 
+class CSPlayer;
 class Entity;
 class ItemSystem;
+class PlantedC4;
 class PlayerResource;
 class WeaponSystem;
 template <typename T>
@@ -28,10 +30,12 @@ public:
     WeaponSystem* weaponSystem;
     ActiveChannels* activeChannels;
     Channel* channels;
-    UtlVector<Entity*>* plantedC4s;
+    UtlVector<PlantedC4*>* plantedC4s;
+    UtlVector<int>* smokeHandles;
     PlayerResource** playerResource;
+    Entity** gameRules;
 
-    bool(__THISCALL* isOtherEnemy)(Entity*, Entity*);
+    bool(__THISCALL* isOtherEnemy)(CSPlayer*, CSPlayer*);
     std::add_pointer_t<void __CDECL(const char* msg, ...)> debugMsg;
 #ifdef __APPLE__
     ItemSystem** itemSystem;
@@ -40,6 +44,15 @@ public:
 #endif
     std::add_pointer_t<bool __CDECL(Vector, Vector, short)> lineGoesThroughSmoke;
     const wchar_t*(__THISCALL* getDecoratedPlayerName)(PlayerResource* pr, int index, wchar_t* buffer, int buffsize, int flags);
+
+    const char* getGameModeName(bool skirmish) const noexcept
+    {
+#ifdef _WIN32
+        return reinterpret_cast<const char*(__stdcall*)(bool)>(getGameModeNameFn)(skirmish);
+#else
+        return reinterpret_cast<const char*(*)(void*, bool)>(getGameModeNameFn)(nullptr, skirmish);
+#endif
+    }
 
 #ifdef _WIN32
     std::uintptr_t reset;
@@ -50,6 +63,9 @@ public:
     std::uintptr_t swapWindow;
     std::uintptr_t warpMouseInWindow;
 #endif
+
+private:
+    std::uintptr_t getGameModeNameFn;
 };
 
 inline std::unique_ptr<const Memory> memory;

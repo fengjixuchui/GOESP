@@ -22,6 +22,8 @@
 //  2018-02-16: Misc: Obsoleted the io.RenderDrawListsFn callback and exposed ImGui_ImplDX9_RenderDrawData() in the .h file so you can call it yourself.
 //  2018-02-06: Misc: Removed call to ImGui::Shutdown() which is not available from 1.60 WIP, user needs to call CreateContext/DestroyContext themselves.
 
+#include <memory>
+
 #include "imgui.h"
 #include "imgui_impl_dx9.h"
 
@@ -38,7 +40,7 @@ static LPDIRECT3DTEXTURE9       g_FontTexture = NULL;
 static IDirect3DVertexDeclaration9* vertexDeclaration = nullptr;
 static int                      g_VertexBufferSize = 5000, g_IndexBufferSize = 10000;
 
-static void ImGui_ImplDX9_SetupRenderState(ImDrawData* draw_data)
+static void ImGui_ImplDX9_SetupRenderState(const ImDrawData* draw_data)
 {
     // Setup viewport
     D3DVIEWPORT9 vp;
@@ -50,8 +52,8 @@ static void ImGui_ImplDX9_SetupRenderState(ImDrawData* draw_data)
     g_pd3dDevice->SetViewport(&vp);
 
     // Setup render state: fixed-pipeline, alpha-blending, no face culling, no depth testing, shade mode (for gradient)
-    g_pd3dDevice->SetPixelShader(NULL);
-    g_pd3dDevice->SetVertexShader(NULL);
+    g_pd3dDevice->SetPixelShader(nullptr);
+    g_pd3dDevice->SetVertexShader(nullptr);
     g_pd3dDevice->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
     g_pd3dDevice->SetRenderState(D3DRS_LIGHTING, false);
     g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, false);
@@ -95,7 +97,7 @@ static void ImGui_ImplDX9_SetupRenderState(ImDrawData* draw_data)
 
 // Render function.
 // (this used to be set in io.RenderDrawListsFn and called by ImGui::Render(), but you can now call this directly from your main loop)
-void ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data)
+void ImGui_ImplDX9_RenderDrawData(const ImDrawData* draw_data)
 {
     // Avoid rendering when minimized
     if (draw_data->DisplaySize.x <= 0.0f || draw_data->DisplaySize.y <= 0.0f)
@@ -104,21 +106,21 @@ void ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data)
     // Create and grow buffers if needed
     if (!g_pVB || g_VertexBufferSize < draw_data->TotalVtxCount)
     {
-        if (g_pVB) { g_pVB->Release(); g_pVB = NULL; }
+        if (g_pVB) { g_pVB->Release(); g_pVB = nullptr; }
         g_VertexBufferSize = draw_data->TotalVtxCount + 5000;
-        if (g_pd3dDevice->CreateVertexBuffer(g_VertexBufferSize * sizeof(ImDrawVert), D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &g_pVB, NULL) < 0)
+        if (g_pd3dDevice->CreateVertexBuffer(g_VertexBufferSize * sizeof(ImDrawVert), D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &g_pVB, nullptr) < 0)
             return;
     }
     if (!g_pIB || g_IndexBufferSize < draw_data->TotalIdxCount)
     {
-        if (g_pIB) { g_pIB->Release(); g_pIB = NULL; }
+        if (g_pIB) { g_pIB->Release(); g_pIB = nullptr; }
         g_IndexBufferSize = draw_data->TotalIdxCount + 10000;
-        if (g_pd3dDevice->CreateIndexBuffer(g_IndexBufferSize * sizeof(ImDrawIdx), D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, sizeof(ImDrawIdx) == 2 ? D3DFMT_INDEX16 : D3DFMT_INDEX32, D3DPOOL_DEFAULT, &g_pIB, NULL) < 0)
+        if (g_pd3dDevice->CreateIndexBuffer(g_IndexBufferSize * sizeof(ImDrawIdx), D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, sizeof(ImDrawIdx) == 2 ? D3DFMT_INDEX16 : D3DFMT_INDEX32, D3DPOOL_DEFAULT, &g_pIB, nullptr) < 0)
             return;
     }
 
     // Backup the DX9 state
-    IDirect3DStateBlock9* d3d9_state_block = NULL;
+    IDirect3DStateBlock9* d3d9_state_block = nullptr;
     if (g_pd3dDevice->CreateStateBlock(D3DSBT_ALL, &d3d9_state_block) < 0)
         return;
 
@@ -133,7 +135,7 @@ void ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data)
         return;
     for (int n = 0; n < draw_data->CmdListsCount; n++)
     {
-        ImDrawList* cmd_list = draw_data->CmdLists[n];
+        const ImDrawList* cmd_list = draw_data->CmdLists[n];
         memcpy(vtx_dst, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert));
         vtx_dst += cmd_list->VtxBuffer.Size;
         memcpy(idx_dst, cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx));
@@ -159,7 +161,7 @@ void ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data)
         for (int cmd_i = 0; cmd_i < cmd_list->CmdBuffer.Size; cmd_i++)
         {
             const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[cmd_i];
-            if (pcmd->UserCallback != NULL)
+            if (pcmd->UserCallback != nullptr)
             {
                 // User callback, registered via ImDrawList::AddCallback()
                 // (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
@@ -189,7 +191,7 @@ void ImGui_ImplDX9_RenderDrawData(ImDrawData* draw_data)
 
 void ImGui_ImplDX9_DestroyFontsTexture()
 {
-    if (g_FontTexture) { g_FontTexture->Release(); g_FontTexture = NULL; ImGui::GetIO().Fonts->TexID = NULL; } // We copied g_pFontTextureView to io.Fonts->TexID so let's clear that as well.
+    if (g_FontTexture) { g_FontTexture->Release(); g_FontTexture = nullptr; ImGui::GetIO().Fonts->TexID = nullptr; } // We copied g_pFontTextureView to io.Fonts->TexID so let's clear that as well.
 }
 
 bool ImGui_ImplDX9_Init(IDirect3DDevice9* device)
@@ -207,7 +209,7 @@ bool ImGui_ImplDX9_Init(IDirect3DDevice9* device)
 void ImGui_ImplDX9_Shutdown()
 {
     ImGui_ImplDX9_InvalidateDeviceObjects();
-    if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
+    if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = nullptr; }
 }
 
 static bool ImGui_ImplDX9_CreateFontsTexture()
@@ -219,11 +221,11 @@ static bool ImGui_ImplDX9_CreateFontsTexture()
     io.Fonts->GetTexDataAsAlpha8(&pixels, &width, &height);
 
     // Upload texture to graphics system
-    g_FontTexture = NULL;
-    if (g_pd3dDevice->CreateTexture(width, height, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8, D3DPOOL_DEFAULT, &g_FontTexture, NULL) < 0)
+    g_FontTexture = nullptr;
+    if (g_pd3dDevice->CreateTexture(width, height, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8, D3DPOOL_DEFAULT, &g_FontTexture, nullptr) < 0)
         return false;
     D3DLOCKED_RECT tex_locked_rect;
-    if (g_FontTexture->LockRect(0, &tex_locked_rect, NULL, 0) != D3D_OK)
+    if (g_FontTexture->LockRect(0, &tex_locked_rect, nullptr, D3DLOCK_DISCARD) != D3D_OK)
         return false;
     for (int y = 0; y < height; y++)
         memcpy((unsigned char*)tex_locked_rect.pBits + tex_locked_rect.Pitch * y, pixels + width * y, width);
@@ -258,8 +260,8 @@ void ImGui_ImplDX9_InvalidateDeviceObjects()
 {
     if (!g_pd3dDevice)
         return;
-    if (g_pVB) { g_pVB->Release(); g_pVB = NULL; }
-    if (g_pIB) { g_pIB->Release(); g_pIB = NULL; }
+    if (g_pVB) { g_pVB->Release(); g_pVB = nullptr; }
+    if (g_pIB) { g_pIB->Release(); g_pIB = nullptr; }
     ImGui_ImplDX9_DestroyFontsTexture();
     if (vertexDeclaration) { vertexDeclaration->Release(); vertexDeclaration = nullptr; }
 }
@@ -277,18 +279,18 @@ ImTextureID ImGui_CreateTextureRGBA(int width, int height, const unsigned char* 
         return nullptr;
 
     D3DLOCKED_RECT lockedRect;
-    if (texture->LockRect(0, &lockedRect, nullptr, 0) != D3D_OK) {
+    if (texture->LockRect(0, &lockedRect, nullptr, D3DLOCK_DISCARD) != D3D_OK) {
         texture->Release();
         return nullptr;
     }
 
-    for (int y = 0; y < height; ++y) {
-        memcpy((unsigned char*)lockedRect.pBits + lockedRect.Pitch * y, data + width * 4 * y, width * 4);
-        for (int x = 0; x < width; ++x) {
-            auto color = reinterpret_cast<int*>((unsigned char*)lockedRect.pBits + lockedRect.Pitch * y + x * 4);
-            *color = (*color & 0xFF00FF00) | ((*color & 0xFF0000) >> 16) | ((*color & 0xFF) << 16); // RGBA --> ARGB
-        }
-    }
+    const auto buffer = std::make_unique<std::uint32_t[]>(width * height);
+    std::memcpy(buffer.get(), data, width * height * 4);
+    for (int i = 0; i < width * height; ++i)
+        buffer[i] = (buffer[i] & 0xFF00FF00) | ((buffer[i] & 0xFF0000) >> 16) | ((buffer[i] & 0xFF) << 16); // RGBA --> ARGB
+
+    for (int y = 0; y < height; ++y)
+        std::memcpy((unsigned char*)lockedRect.pBits + lockedRect.Pitch * y, buffer.get() + width * y, width * 4);
 
     texture->UnlockRect(0);
     return texture;
