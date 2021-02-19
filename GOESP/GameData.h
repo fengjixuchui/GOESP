@@ -29,6 +29,7 @@ namespace GameData
     void update() noexcept;
     void clearProjectileList() noexcept;
     void clearTextures() noexcept;
+    void clearPlayersLastLocation() noexcept;
 
     class Lock {
     public:
@@ -103,6 +104,7 @@ struct ProjectileData : BaseData {
     bool exploded = false;
     bool thrownByLocalPlayer = false;
     bool thrownByEnemy = false;
+    float explosionTime = 0.0f;
     int handle;
     const char* name = nullptr;
     std::vector<std::pair<float, Vector>> trajectory;
@@ -116,6 +118,7 @@ struct PlayerData : BaseData {
     PlayerData& operator=(PlayerData&& other) = default;
 
     void update(CSPlayer* entity) noexcept;
+    const std::string& getRankName() const noexcept;
     ImTextureID getAvatarTexture() const noexcept;
     ImTextureID getRankTexture() const noexcept;
     void clearAvatarTexture() noexcept { avatarTexture = {}; }
@@ -136,6 +139,7 @@ struct PlayerData : BaseData {
     int userId;
     int handle;
     int money;
+    int competitiveWins;
     Team team;
     std::uint64_t steamID;
     char name[128];
